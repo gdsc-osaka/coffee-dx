@@ -36,7 +36,7 @@ git checkout -b <コピーしたブランチ名>
 
 開発完了後、GitHubでPRを作成する。
 
-- レビュアーには **SWEグループ** を指定する
+- レビュアーには **coffee-dx-swe** を指定する
 - PRを作成すると、LinearのIssueステータスが自動的に **In-Review** に変わる
 
 #### 7. レビュー（SWEグループ）
