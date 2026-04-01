@@ -8,7 +8,7 @@ terraform {
   }
 
   # Cloudflare R2 (S3互換) をリモートバックエンドとして使用
-  # 初回セットアップ: terraform init -backend-config=backend.hcl
+  # 初回セットアップ: terraform init -migrate-state -backend-config=backend.hcl
   backend "s3" {
     bucket                      = "coffee-dx-tfstate"
     key                         = "terraform.tfstate"
@@ -34,6 +34,10 @@ resource "cloudflare_r2_bucket" "tfstate" {
 resource "cloudflare_d1_database" "main" {
   account_id = var.account_id
   name       = var.d1_database_name
+
+  read_replication = {
+    mode = "disabled"
+  }
 }
 
 # Worker Script
