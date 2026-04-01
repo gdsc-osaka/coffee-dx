@@ -20,7 +20,7 @@ reviews:
     - path: "web/app/**"
       instructions: |
         - **[重要] Node.js依存の禁止**: 
-          ここはCloudflare Workers環境（V8アイソレート）で動きます。`fs`, `path`, `crypto` などのNode.jsネイティブモジュールを使用しているコードがあれば、エラーとして強く指摘してください。
+          ここはCloudflare Workers環境（V8アイソレート）で動きます。`fs`, `path` などの Node.js ネイティブモジュールや、Node.js の `crypto` モジュール（例: `import 'node:crypto'`, `require('crypto')`）を使用しているコードがあれば、エラーとして強く指摘してください。ただし、Cloudflare Workers で利用可能なグローバルの Web Crypto API（`crypto`）の使用は問題ありません。
         
         - **[重要] Edgeキャッシュの意識**:
           loader関数でデータを返す際、更新頻度の低いデータには適切な `Cache-Control` ヘッダー（Cloudflare CDN用）を設定することを提案・意識づけしてください。
