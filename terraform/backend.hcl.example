@@ -1,0 +1,9 @@
+# terraform init -backend-config=backend.hcl
+# R2 API トークン（S3互換）は Cloudflare ダッシュボード > R2 > API トークン管理 で発行
+
+endpoints = {
+  s3 = "https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+}
+
+access_key = "<R2_ACCESS_KEY_ID>"
+secret_key = "<R2_SECRET_ACCESS_KEY>"

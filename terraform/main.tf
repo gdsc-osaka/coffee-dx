@@ -6,9 +6,29 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Cloudflare R2 (S3互換) をリモートバックエンドとして使用
+  # 初回セットアップ: terraform init -backend-config=backend.hcl
+  backend "s3" {
+    bucket                      = "coffee-dx-tfstate"
+    key                         = "terraform.tfstate"
+    region                      = "auto"
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    skip_s3_checksum            = true
+    use_path_style              = true
+  }
 }
 
 provider "cloudflare" {}
+
+# R2 Bucket (tfstate保存用)
+resource "cloudflare_r2_bucket" "tfstate" {
+  account_id = var.account_id
+  name       = "coffee-dx-tfstate"
+}
 
 # D1 Database
 resource "cloudflare_d1_database" "main" {

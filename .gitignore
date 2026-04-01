@@ -7,3 +7,4 @@ apps/web/.react-router
 *.tfstate
 *.tfstate.backup
 *.tfvars
+backend.hcl
