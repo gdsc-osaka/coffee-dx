@@ -3,11 +3,10 @@ compatibility_date = "2024-04-01"
 main = "./workers/app.ts"
 assets = { directory = "./build/client" }
 
-# D1
-# [[d1_databases]]
-# binding = "DB"
-# database_name = "coffee-dx"
-# database_id = "YOUR_DATABASE_ID"
+[[d1_databases]]
+binding = "DB"
+database_name = "coffee-dx-db"
+database_id = "548f7cf3-07db-4da6-b3a7-8f769d3a685d"
 
 # Durable Objects
 # [[durable_objects.bindings]]
