@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "react-router build",
+    "build": "node -e \"fs.mkdirSync('build/server',{recursive:true});fs.writeFileSync('build/server/index.js','')\" && react-router build",
     "dev": "react-router dev",
     "typecheck": "react-router typegen && tsc",
     "deploy": "wrangler deploy"
