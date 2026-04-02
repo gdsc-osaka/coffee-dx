@@ -1,6 +1,6 @@
 name = "coffee-dx"
 compatibility_date = "2024-04-01"
-main = "./workers/app.ts"
+main = "build/server/index.js"
 assets = { directory = "./build/client" }
 
 # D1
