@@ -8,7 +8,7 @@ on:
       - "terraform/**"
 
 concurrency:
-  group: terraform-apply
+  group: terraform
   cancel-in-progress: false
 
 permissions:
