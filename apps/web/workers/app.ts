@@ -1,4 +1,5 @@
-import { createRequestHandler } from "@react-router/cloudflare";
+import { createRequestHandler } from "react-router";
+// @ts-expect-error - virtual module provided by React Router plugin at build time
 import * as build from "virtual:react-router/server-build";
 
 export interface Env {
