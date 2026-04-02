@@ -1,0 +1,4 @@
+name = "coffee-dx"
+main = "src/index.ts"
+compatibility_date = "2024-04-01"
+# ここにD1やKVなどのバインディング設定を追記していく
