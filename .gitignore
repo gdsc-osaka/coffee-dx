@@ -1,3 +1,10 @@
 node_modules
 apps/web/build
 apps/web/.react-router
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+backend.hcl
