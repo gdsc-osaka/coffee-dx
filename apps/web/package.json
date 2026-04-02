@@ -5,7 +5,11 @@
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
+    "lint": "oxlint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
     "typecheck": "react-router typegen && tsc",
+    "check": "pnpm lint && pnpm format:check",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
@@ -22,9 +26,12 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "oxfmt": "^0.43.0",
+    "oxlint": "^0.15.11",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.19.3",
     "typescript": "^5.9.3",
-    "vite": "^7.1.7",
+    "vite": "^8.0.3",
     "vite-tsconfig-paths": "^5.1.4",
     "wrangler": "^4.79.0"
   }

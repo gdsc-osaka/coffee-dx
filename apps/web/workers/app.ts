@@ -4,7 +4,6 @@ import type { ServerBuild } from "react-router";
 export interface Env {
   // D1
   // DB: D1Database;
-
   // Durable Objects
   // ORDER_DO: DurableObjectNamespace;
 }
