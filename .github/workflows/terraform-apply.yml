@@ -16,7 +16,6 @@ env:
 jobs:
   apply:
     runs-on: ubuntu-latest
-    environment: production
     defaults:
       run:
         working-directory: terraform
