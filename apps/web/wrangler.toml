@@ -1,0 +1,15 @@
+name = "coffee-dx"
+compatibility_date = "2024-04-01"
+main = "./workers/app.ts"
+assets = { directory = "./build/client" }
+
+# D1
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "coffee-dx"
+# database_id = "YOUR_DATABASE_ID"
+
+# Durable Objects
+# [[durable_objects.bindings]]
+# name = "ORDER_DO"
+# class_name = "OrderDurableObject"

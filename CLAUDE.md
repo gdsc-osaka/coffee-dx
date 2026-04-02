@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Tech Stack
 
 - **Runtime**: Cloudflare Workers (V8 isolate)
-- **Framework**: Remix (複数アプリ)
+- **Framework**: Remix (単一アプリ)
 - **DB**: Cloudflare D1
 - **Real-time**: Cloudflare Durable Objects + WebSocket
 - **IaC**: Terraform
@@ -20,26 +20,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 apps/
-  customer/     # 客向け：メニュー閲覧・注文・注文番号確認
-  drip/         # ドリップ係：注文内容確認（WebSocket受信）
-  cashier/      # 会計係：注文状況確認（WebSocket受信）
+  web/          # 単一Remixアプリ（全画面）
+    app/
+      routes/
+        _customer/    # 客向け：メニュー閲覧・注文・注文番号確認
+        _drip/        # ドリップ係：注文内容確認
+        _cashier/     # 会計係：注文状況確認
 packages/
   ui/           # 共有UIコンポーネント
   db/           # D1スキーマ・クエリ
   types/        # 共有型定義
 terraform/      # Cloudflareリソース定義
-worker/         # 各Remixアプリを束ねるWorkerエントリポイント
 ```
 
 ## Architecture
 
-### Single Worker + Multiple Remix Apps
+### Single Remix App
 
-3つのRemixアプリを1つのCloudflare Workerにまとめる構成。`worker/` のエントリポイントがリクエストパスのプレフィックスで各Remixハンドラにルーティングする。
+全画面を `apps/web/` の1つのRemixアプリで管理し、1つのCloudflare Workerとしてデプロイする。
 
-- `/` → customer app
-- `/drip` → drip app
-- `/cashier` → cashier app
+### Route Protection
+
+スタッフ画面（`_drip/`・`_cashier/`）はレイアウトルートの `loader` でアクセス制御する。レイアウトルートの `loader` が認証を通過しない限り配下の全ルートにアクセスできない。
+
+```ts
+// app/routes/_drip.tsx
+export async function loader({ request }: LoaderFunctionArgs) {
+  const isStaff = await verifyStaffSession(request);
+  if (!isStaff) throw redirect("/");
+  return null;
+}
+```
 
 ### Real-time Updates
 
