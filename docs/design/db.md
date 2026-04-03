@@ -71,7 +71,7 @@ erDiagram
 
 **注文状態（`status`）の遷移:**
 
-```
+```text
 pending → brewing → ready → completed
                            → cancelled
 ```
