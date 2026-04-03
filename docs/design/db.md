@@ -46,15 +46,15 @@ erDiagram
 
 販売するコーヒーメニューを管理する。
 
-| カラム          | 型      | 制約                               | 説明                                 |
-| --------------- | ------- | ---------------------------------- | ------------------------------------ |
-| `id`            | INTEGER | PRIMARY KEY AUTOINCREMENT          | メニューID                           |
-| `name`          | TEXT    | NOT NULL                           | メニュー名（例: ブレンドコーヒー）   |
-| `price`         | INTEGER | NOT NULL                           | 価格（円）                           |
-| `description`   | TEXT    |                                    | 説明文                               |
-| `image_url`     | TEXT    |                                    | メニュー画像のURL                    |
-| `is_available`  | INTEGER | NOT NULL DEFAULT 1                 | 販売中フラグ（1=販売中, 0=売り切れ） |
-| `display_order` | INTEGER | NOT NULL DEFAULT 0                 | メニュー表示順                       |
+| カラム          | 型      | 制約                      | 説明                                 |
+| --------------- | ------- | ------------------------- | ------------------------------------ |
+| `id`            | INTEGER | PRIMARY KEY AUTOINCREMENT | メニューID                           |
+| `name`          | TEXT    | NOT NULL                  | メニュー名（例: ブレンドコーヒー）   |
+| `price`         | INTEGER | NOT NULL                  | 価格（円）                           |
+| `description`   | TEXT    |                           | 説明文                               |
+| `image_url`     | TEXT    |                           | メニュー画像のURL                    |
+| `is_available`  | INTEGER | NOT NULL DEFAULT 1        | 販売中フラグ（1=販売中, 0=売り切れ） |
+| `display_order` | INTEGER | NOT NULL DEFAULT 0        | メニュー表示順                       |
 
 ### `orders` — 注文
 
@@ -109,7 +109,3 @@ pending → brewing → ready → completed
 ### `unit_price` を注文明細に保持
 
 注文後にメニュー価格を変更しても、注文時の価格が保持される。
-
-### Durable Objectsとの役割分担
-
-D1は永続的なデータ（注文履歴・メニューマスタ）を保持する。注文状態のリアルタイム配信はDurable Objects + WebSocketが担い、状態変更時にD1へも書き込む。
