@@ -24,7 +24,6 @@ erDiagram
         INTEGER order_number "注文番号（当日通し番号、UNIQUE）"
         TEXT status "注文状態"
         TEXT created_at "注文日時"
-        TEXT updated_at "更新日時"
     }
 
     order_items {
@@ -60,7 +59,6 @@ erDiagram
 | `order_number` | INTEGER | NOT NULL UNIQUE                    | 注文番号（当日通し番号、客に表示） |
 | `status`       | TEXT    | NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','brewing','ready','completed','cancelled')) | 注文状態                           |
 | `created_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 注文日時                           |
-| `updated_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 更新日時                           |
 
 **注文状態（`status`）の遷移:**
 
