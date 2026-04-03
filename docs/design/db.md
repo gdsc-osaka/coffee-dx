@@ -64,10 +64,10 @@ erDiagram
 | -------------- | ------- | ---------------------------------- | ---------------------------------- |
 | `id`           | INTEGER | PRIMARY KEY AUTOINCREMENT          | 注文ID（内部用）                   |
 | `order_number` | INTEGER | NOT NULL                           | 注文番号（当日通し番号、客に表示） |
-| `status`       | TEXT    | NOT NULL DEFAULT 'pending'         | 注文状態                           |
+| `status`       | TEXT    | NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','brewing','ready','completed','cancelled')) | 注文状態                           |
 | `total_amount` | INTEGER | NOT NULL                           | 合計金額（円）                     |
-| `created_at`   | TEXT    | NOT NULL DEFAULT (datetime('now')) | 注文日時                           |
-| `updated_at`   | TEXT    | NOT NULL DEFAULT (datetime('now')) | 更新日時                           |
+| `created_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 注文日時                           |
+| `updated_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 更新日時                           |
 
 **注文状態（`status`）の遷移:**
 
@@ -109,3 +109,7 @@ pending → brewing → ready → completed
 ### `unit_price` を注文明細に保持
 
 注文後にメニュー価格を変更しても、注文時の価格が保持される。
+
+### 日時はJST（UTC+9）で保存
+
+`datetime('now', '+9 hours')` でJST相当の値を保存する。文化祭は日中の1日イベントのため、タイムゾーン変換の複雑さよりも、保存値がそのまま日本時間として読める利便性を優先した。
