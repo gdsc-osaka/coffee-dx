@@ -25,7 +25,7 @@ erDiagram
         INTEGER id PK
         INTEGER order_number "注文番号（当日通し番号）"
         TEXT status "注文状態"
-        INTEGER total_amount "合計金額（円）"
+
         TEXT created_at "注文日時"
         TEXT updated_at "更新日時"
     }
@@ -65,7 +65,7 @@ erDiagram
 | `id`           | INTEGER | PRIMARY KEY AUTOINCREMENT          | 注文ID（内部用）                   |
 | `order_number` | INTEGER | NOT NULL                           | 注文番号（当日通し番号、客に表示） |
 | `status`       | TEXT    | NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','brewing','ready','completed','cancelled')) | 注文状態                           |
-| `total_amount` | INTEGER | NOT NULL                           | 合計金額（円）                     |
+
 | `created_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 注文日時                           |
 | `updated_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 更新日時                           |
 
@@ -109,6 +109,10 @@ pending → brewing → ready → completed
 ### `unit_price` を注文明細に保持
 
 注文後にメニュー価格を変更しても、注文時の価格が保持される。
+
+### 合計金額はカラムに持たず都度算出
+
+`orders` テーブルに合計金額カラムは持たない。`order_items` の `SUM(unit_price * quantity)` で都度算出することで、更新漏れによる不整合を防ぐ。
 
 ### 日時はJST（UTC+9）で保存
 
