@@ -16,16 +16,13 @@ erDiagram
         TEXT name "メニュー名"
         INTEGER price "価格（円）"
         TEXT description "説明"
-        TEXT image_url "画像URL"
         INTEGER is_available "販売中フラグ（0/1）"
-        INTEGER display_order "表示順"
     }
 
     orders {
         INTEGER id PK
-        INTEGER order_number "注文番号（当日通し番号）"
+        INTEGER order_number "注文番号（当日通し番号、UNIQUE）"
         TEXT status "注文状態"
-
         TEXT created_at "注文日時"
         TEXT updated_at "更新日時"
     }
@@ -35,7 +32,6 @@ erDiagram
         INTEGER order_id FK "注文ID"
         INTEGER menu_item_id FK "メニューID"
         INTEGER quantity "数量"
-        INTEGER unit_price "注文時単価（円）"
     }
 
 ```
@@ -52,9 +48,7 @@ erDiagram
 | `name`          | TEXT    | NOT NULL                  | メニュー名（例: ブレンドコーヒー）   |
 | `price`         | INTEGER | NOT NULL                  | 価格（円）                           |
 | `description`   | TEXT    |                           | 説明文                               |
-| `image_url`     | TEXT    |                           | メニュー画像のURL                    |
 | `is_available`  | INTEGER | NOT NULL DEFAULT 1        | 販売中フラグ（1=販売中, 0=売り切れ） |
-| `display_order` | INTEGER | NOT NULL DEFAULT 0        | メニュー表示順                       |
 
 ### `orders` — 注文
 
@@ -63,9 +57,8 @@ erDiagram
 | カラム         | 型      | 制約                               | 説明                               |
 | -------------- | ------- | ---------------------------------- | ---------------------------------- |
 | `id`           | INTEGER | PRIMARY KEY AUTOINCREMENT          | 注文ID（内部用）                   |
-| `order_number` | INTEGER | NOT NULL                           | 注文番号（当日通し番号、客に表示） |
+| `order_number` | INTEGER | NOT NULL UNIQUE                    | 注文番号（当日通し番号、客に表示） |
 | `status`       | TEXT    | NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','brewing','ready','completed','cancelled')) | 注文状態                           |
-
 | `created_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 注文日時                           |
 | `updated_at`   | TEXT    | NOT NULL DEFAULT (datetime('now', '+9 hours')) | 更新日時                           |
 
@@ -86,7 +79,7 @@ pending → brewing → ready → completed
 
 ### `order_items` — 注文明細
 
-注文に含まれる各メニューの明細。注文時の単価を `unit_price` に記録し、メニュー価格の変更に影響されない。
+注文に含まれる各メニューの明細。価格は `menu_items.price` をJOINで参照する。
 
 | カラム         | 型      | 制約                                | 説明               |
 | -------------- | ------- | ----------------------------------- | ------------------ |
@@ -94,7 +87,6 @@ pending → brewing → ready → completed
 | `order_id`     | INTEGER | NOT NULL, REFERENCES orders(id)     | 注文ID             |
 | `menu_item_id` | INTEGER | NOT NULL, REFERENCES menu_items(id) | メニューID         |
 | `quantity`     | INTEGER | NOT NULL DEFAULT 1                  | 数量               |
-| `unit_price`   | INTEGER | NOT NULL                            | 注文時の単価（円） |
 
 ## 設計判断
 
@@ -106,13 +98,9 @@ pending → brewing → ready → completed
 
 `id` は内部の主キー、`order_number` は客に見せる当日の通し番号。日をまたいで運用する場合でもIDの連続性に依存しない。
 
-### `unit_price` を注文明細に保持
+### 金額は `menu_items.price` から都度算出
 
-注文後にメニュー価格を変更しても、注文時の価格が保持される。
-
-### 合計金額はカラムに持たず都度算出
-
-`orders` テーブルに合計金額カラムは持たない。`order_items` の `SUM(unit_price * quantity)` で都度算出することで、更新漏れによる不整合を防ぐ。
+`order_items` に単価カラムは持たない。価格変更がないため `menu_items.price` をJOINで参照し、`SUM(price * quantity)` で合計を算出する。
 
 ### 日時はJST（UTC+9）で保存
 
