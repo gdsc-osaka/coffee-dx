@@ -9,3 +9,4 @@ apps/web/.react-router
 *.tfvars
 backend.hcl
 *.wrangler
+.claude/settings.local.json
