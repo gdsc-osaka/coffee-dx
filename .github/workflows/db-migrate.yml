@@ -5,9 +5,14 @@ on:
     branches: [main]
     paths:
       - "apps/web/drizzle/migrations/**"
+      - ".github/workflows/db-migrate.yml"
 
 permissions:
   contents: read
+
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
 
 jobs:
   migrate:
@@ -36,3 +41,4 @@ jobs:
         run: pnpm migrate:remote -- --yes
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
