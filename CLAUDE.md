@@ -97,6 +97,49 @@ terraform apply
 3. PRを作成し、レビュアーに **coffee-dx-swe** を指定
 4. PR作成でLinearが **In-Review** に、マージで **Done** に自動遷移
 
+## Database Migrations
+
+### ローカル開発
+
+```bash
+# スキーマ変更時、migration SQL を生成
+pnpm db:generate
+
+# ローカル D1 に適用
+pnpm migrate:local
+
+# リモート環境に適用（本番環境でのみ使用）
+pnpm migrate:remote
+```
+
+### ファイル構成と git 管理
+
+```
+apps/web/drizzle/
+  migrations/          # SQL migration ファイル（全て git 管理）
+    0001_init.sql
+    0002_add_table.sql
+    ...
+  meta/
+    _journal.json      # ✅ git 管理（必須）- migration 実行履歴
+    *_snapshot.json    # ✅ git 管理（必須）- スキーマスナップショット
+```
+
+**重要**: `migrations/meta/` 配下の `.gitignore` に記載しない。チーム全体でマイグレーション履歴を同期するために必須。
+
+### CI/CD パイプライン
+
+- **`db-migrate.yml`**: `apps/web/drizzle/migrations/` に変更があれば、自動的に本番 D1 へ migration を実行
+- migration コマンドは `pnpm migrate:remote -- --yes` で実行（`--yes` フラグで確認なしで進行）
+
+### スキーマ変更の流れ
+
+1. `apps/web/db/schema.ts` を編集
+2. `pnpm db:generate` で migration SQL を自動生成 → `apps/web/drizzle/migrations/NNNN_*.sql` が作成
+3. `pnpm migrate:local` でローカルテスト
+4. `git add apps/web/drizzle/` でコミット（`migrations/` と `migrations/meta/` 両方）
+5. `git push` & PR 作成 → マージ時に自動で本番環境に migration 実行
+
 ## Code Review
 
 CodeRabbitが自動レビューを行う（日本語）。レビューコメントへの返答もCodeRabbitが自動対応する。
