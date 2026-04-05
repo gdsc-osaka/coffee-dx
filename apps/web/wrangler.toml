@@ -11,6 +11,7 @@ assets = { directory = "./build/client" }
 binding = "DB"
 database_name = "coffee-dx-db"
 database_id = "548f7cf3-07db-4da6-b3a7-8f769d3a685d"
+migrations_dir = "drizzle/migrations"
 
 # Durable Objects
 # [[durable_objects.bindings]]
