@@ -10,7 +10,9 @@
     "rootDirs": [".", "./.react-router/types"],
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./app/*"]
+      "~/*": ["./app/*"],
+      "~/db": ["./db/index.ts"],
+      "~/db/*": ["./db/*"]
     },
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,

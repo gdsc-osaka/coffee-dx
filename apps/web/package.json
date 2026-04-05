@@ -11,10 +11,14 @@
     "cd:typegen": "react-router typegen",
     "typecheck": "pnpm run cd:typegen && tsc",
     "check": "pnpm lint && pnpm format:check",
-    "deploy": "react-router build && wrangler deploy"
+    "deploy": "react-router build && wrangler deploy",
+    "db:generate": "drizzle-kit generate",
+    "migrate:local": "wrangler d1 migrations apply coffee-dx-db --local",
+    "migrate:remote": "wrangler d1 migrations apply coffee-dx-db --remote"
   },
   "dependencies": {
     "@react-router/cloudflare": "7.13.2",
+    "drizzle-orm": "^0.45.2",
     "isbot": "^5.1.36",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -27,6 +31,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
     "oxfmt": "^0.43.0",
     "oxlint": "^0.15.11",
     "tailwindcss": "^4.2.2",
