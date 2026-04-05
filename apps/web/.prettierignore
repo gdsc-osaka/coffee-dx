@@ -1,0 +1,4 @@
+# oxfmt はカレントディレクトリの .prettierignore を参照する（モノレポルートの .gitignore は見ない）
+build
+.react-router
+worker-configuration.d.ts
