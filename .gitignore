@@ -8,4 +8,5 @@ apps/web/.react-router
 *.tfstate.backup
 *.tfvars
 backend.hcl
-*.wrangler
+*.wrangler/
+.pnpm-store/
