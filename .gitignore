@@ -8,5 +8,6 @@ apps/web/.react-router
 *.tfstate.backup
 *.tfvars
 backend.hcl
-*.wrangler
 .claude/settings.local.json
+*.wrangler/
+.pnpm-store/
