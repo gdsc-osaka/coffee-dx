@@ -1,7 +1,11 @@
 name = "coffee-dx"
 compatibility_date = "2026-04-04"
-main = "./workers/app.ts"
+main = "./worker.ts"
 assets = { directory = "./build/client" }
+
+# react-router build の出力へ差し替え（wrangler deploy / wrangler dev のバンドル用）
+[alias]
+"virtual:react-router/server-build" = "./build/server/index.js"
 
 [[d1_databases]]
 binding = "DB"

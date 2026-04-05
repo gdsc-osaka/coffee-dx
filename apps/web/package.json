@@ -8,9 +8,10 @@
     "lint": "oxlint .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
-    "typecheck": "react-router typegen && tsc",
+    "cd:typegen": "react-router typegen",
+    "typecheck": "pnpm run cd:typegen && tsc",
     "check": "pnpm lint && pnpm format:check",
-    "deploy": "wrangler deploy"
+    "deploy": "react-router build && wrangler deploy"
   },
   "dependencies": {
     "@react-router/cloudflare": "7.13.2",
