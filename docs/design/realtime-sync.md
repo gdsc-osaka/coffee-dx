@@ -44,8 +44,10 @@ pending ──→ brewing ──→ ready ──→ completed
     │ HTTP POST                │ WebSocket
     ▼                         ▼
 Cloudflare Worker  ──────→  Durable Object (OrderDO)
-                                    │
-                              D1（非同期書き込み）
+                               │        │
+                          メモリ更新  D1（非同期書き込み）
+                               │
+                          ブロードキャスト
 ```
 
 ### Durable Object の責務
@@ -54,6 +56,7 @@ Cloudflare Worker  ──────→  Durable Object (OrderDO)
 - **メモリ上で注文一覧を保持**（source of truth）
 - 接続中 WebSocket クライアントを管理
 - 状態変化時に全接続クライアントへブロードキャスト
+- **D1 への非同期書き込み**（Worker は委譲するだけ）
 
 ### D1 の責務
 
@@ -66,13 +69,15 @@ Cloudflare Worker  ──────→  Durable Object (OrderDO)
 
 ### 客が注文を投稿する
 
+注文の初回登録のみ Worker が D1 に同期 INSERT する。`order_number` の採番（`order_number_counters` テーブル）が D1 側にあるため、採番と INSERT を同一トランザクションで行う必要があるためである。
+
 ```
 客ブラウザ
   │
   │ POST /orders（Remix action）
   ▼
 Worker
-  ├─ D1 に orders / order_items を INSERT（order_number を採番）
+  ├─ D1 に orders / order_items を INSERT（order_number を採番、同期）
   └─ DO.newOrder(order) を呼び出し
        ├─ メモリ上の注文一覧に追加
        └─ 全スタッフ WS クライアントにブロードキャスト
@@ -145,12 +150,24 @@ Worker
 
 ## D1 書き込みの非同期化
 
-Worker は DO のメモリ更新後、D1 への書き込みを **fire-and-forget** で行い、クライアントへは DO の応答を即時返す。
+ステータス更新は DO がメモリとブロードキャストを先に処理し、D1 への書き込みを非同期で行う。Worker はDOに委譲するだけで D1 を直接書かない。
 
 ```ts
-// Worker 内のイメージ
-await orderDO.updateStatus(orderId, "completed"); // DO 更新（即時）
-ctx.waitUntil(db.update(orders).set({ status: "completed" }).where(...)); // D1 非同期
+// DO メソッド内のイメージ
+class OrderDurableObject {
+  async startBrewing(orderId: string) {
+    // 1. メモリ更新（即時）
+    this.orders.get(orderId).status = "brewing";
+    // 2. ブロードキャスト（即時）
+    this.broadcast({ type: "ORDER_UPDATED", orderId, status: "brewing" });
+    // 3. D1 書き込み（非同期・リトライあり）
+    this.ctx.waitUntil(
+      this.writeWithRetry(() =>
+        this.db.update(orders).set({ status: "brewing" }).where(eq(orders.id, orderId))
+      )
+    );
+  }
+}
 ```
 
 **トレードオフ:**
@@ -159,12 +176,54 @@ ctx.waitUntil(db.update(orders).set({ status: "completed" }).where(...)); // D1 
 |--|---|---|
 | レスポンス速度 | 速い | 遅い |
 | リードパス | DO メモリから返すため D1 不要 | D1 クエリが発生 |
-| 不整合リスク | D1 書き込み失敗時に乖離 | なし |
+| 不整合リスク | D1 書き込み失敗時に乖離（リトライで軽減） | なし |
 
-**不整合リスクへの対処:**
-- `ctx.waitUntil` は Worker がレスポンスを返した後も D1 書き込みを完了まで保持する
-- DO が再起動した際は D1 から状態をリロードするため、最終的に整合する
-- D1 書き込みのリトライは Workers の組み込み機能に委ねる（自前リトライ不要）
+**D1 書き込み失敗時の対処:**
+
+`ctx.waitUntil` は DO の生存時間を延ばすが、書き込み成功を保証するものではない。また D1 の書き込みクエリは自動リトライされない。そのため DO 内でアプリケーション層の明示的なリトライを実装する。
+
+```ts
+// Exponential backoff リトライ（最大3回）＋ 失敗記録
+async writeWithRetry(
+  fn: () => Promise<unknown>,
+  failureKey: string, // DO Storage に記録するキー（例: "fail:order-uuid"）
+  attempts = 3
+): Promise<void> {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      await fn();
+      // 成功時：以前の失敗記録があれば削除
+      await this.ctx.storage.delete(failureKey);
+      return;
+    } catch (e) {
+      if (i === attempts - 1) {
+        // 全リトライ失敗 → DO Storage に記録してリカバリ待ち
+        console.error("[OrderDO] D1 write failed after retries", e);
+        await this.ctx.storage.put(failureKey, {
+          failedAt: new Date().toISOString(),
+          error: String(e),
+        });
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 200 * 2 ** i)); // 200ms, 400ms
+    }
+  }
+}
+```
+
+- UPDATE クエリは同じステータスを再度書くだけなので、リトライは冪等（idempotent）
+- 全リトライ失敗時は DO Storage（永続 KV）に失敗レコードを記録する。DO のメモリは正常なのでスタッフ画面への影響はない
+
+**手動リカバリ手順:**
+
+全リトライ失敗後は DO Storage の失敗レコードをもとに手動でリカバリする。
+
+1. 管理者が `GET /admin/recovery` にアクセスし、DO Storage の失敗レコード一覧を確認する
+2. DO のメモリ（source of truth）と D1 の乖離を特定する
+3. `POST /admin/recovery/apply` で DO のメモリ状態を D1 に同期する（DO から全注文を読み取り D1 を上書き）
+4. 適用後、DO Storage の失敗レコードを削除する
+
+> 管理画面（`/admin`）はイベント当日の運用補助を目的とし、スタッフ認証が必要。
 
 ---
 
@@ -211,28 +270,35 @@ type ServerMessage =
 
 ```ts
 function connectWebSocket(eventId: string) {
-  const ws = new WebSocket(`/ws?eventId=${eventId}`);
+  let retryCount = 0;
 
-  ws.onclose = () => {
-    // Exponential backoff で再接続（最大 30 秒）
-    const delay = Math.min(1000 * 2 ** retryCount, 30_000);
-    setTimeout(() => connectWebSocket(eventId), delay);
-    retryCount++;
-  };
+  function connect() {
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${location.host}/ws?eventId=${eventId}`);
 
-  ws.onmessage = (event) => {
-    const msg = JSON.parse(event.data);
-    if (msg.type === "SNAPSHOT") {
-      // 再接続時も SNAPSHOT で全件上書き（差分管理は不要）
-      replaceAllOrders(msg.orders);
-    } else {
-      applyDiff(msg);
-    }
-  };
+    ws.onclose = () => {
+      // Exponential backoff で再接続（最大 30 秒）
+      const delay = Math.min(1000 * 2 ** retryCount, 30_000);
+      retryCount++;
+      setTimeout(connect, delay);
+    };
 
-  ws.onopen = () => {
-    retryCount = 0; // 接続成功でリセット
-  };
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "SNAPSHOT") {
+        // 再接続時も SNAPSHOT で全件上書き（差分管理は不要）
+        replaceAllOrders(msg.orders);
+      } else {
+        applyDiff(msg);
+      }
+    };
+
+    ws.onopen = () => {
+      retryCount = 0; // 接続成功でリセット
+    };
+  }
+
+  connect();
 }
 ```
 
