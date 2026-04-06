@@ -33,9 +33,9 @@ describe("getAvailableMenuItems", () => {
   });
 
   it("提供中のメニューが0件のとき空配列を返す", async () => {
-    await db.insert(menuItems).values([
-      { id: "1", name: "準備中コーヒー", price: 400, isAvailable: 0 },
-    ]);
+    await db
+      .insert(menuItems)
+      .values([{ id: "1", name: "準備中コーヒー", price: 400, isAvailable: 0 }]);
 
     const result = await getAvailableMenuItems(db);
 

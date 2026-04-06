@@ -16,9 +16,7 @@ export function MenuItemCard({ name, price, description }: Props) {
             <p className="text-sm text-stone-500 mt-0.5 leading-snug">{description}</p>
           )}
         </div>
-        <span className="shrink-0 text-lg font-bold text-stone-900">
-          ¥{price.toLocaleString()}
-        </span>
+        <span className="shrink-0 text-lg font-bold text-stone-900">¥{price.toLocaleString()}</span>
       </CardContent>
     </Card>
   );
