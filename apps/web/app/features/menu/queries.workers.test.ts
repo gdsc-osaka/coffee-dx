@@ -1,12 +1,15 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
-import { applyD1Migrations, env } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { menuItems } from "../../../db/schema";
 import { getAvailableMenuItems } from "./queries";
 
+type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
+const testEnv = env as TestEnv;
+
 beforeAll(async () => {
-  await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+  await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
 });
 
 describe("getAvailableMenuItems", () => {
