@@ -75,6 +75,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
+      - name: Create build/client dir (required by wrangler.toml assets config)
+        run: mkdir -p build/client
       - run: pnpm test:workers
 
   build:
