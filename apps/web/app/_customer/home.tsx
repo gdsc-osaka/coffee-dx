@@ -14,18 +14,18 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const { items } = loaderData;
 
   return (
-    <div className="min-h-screen bg-amber-50">
-      <header className="bg-amber-900 text-white pt-10 pb-8 px-4 shadow-md">
-        <div className="flex flex-col items-center gap-2">
-          <div className="bg-amber-700 rounded-full p-3">
-            <Coffee className="size-7 text-amber-100" />
+    <div className="min-h-screen bg-stone-100">
+      <header className="bg-stone-900 px-4 py-8">
+        <div className="flex items-center gap-3">
+          <Coffee className="size-6 text-white" />
+          <div>
+            <h1 className="text-xl font-bold text-white tracking-wide">コーヒー同好会</h1>
+            <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Today's Menu</p>
           </div>
-          <h1 className="text-2xl font-bold tracking-wide">コーヒー同好会</h1>
-          <p className="text-amber-300 text-sm">本日のメニュー</p>
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-6 space-y-3">
+      <main className="max-w-lg mx-auto px-4 py-5 space-y-2">
         {items.map((item) => (
           <MenuItemCard
             key={item.id}
@@ -36,8 +36,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         ))}
 
         {items.length === 0 && (
-          <div className="flex flex-col items-center gap-3 py-16 text-amber-700/60">
-            <Coffee className="size-10" />
+          <div className="flex flex-col items-center gap-3 py-20 text-stone-400">
+            <Coffee className="size-8" />
             <p className="text-sm">現在提供できるメニューがありません</p>
           </div>
         )}
