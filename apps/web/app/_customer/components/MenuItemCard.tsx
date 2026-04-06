@@ -1,5 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "~/components/ui/card";
-import { Badge } from "~/components/ui/badge";
+import { Card, CardContent } from "~/components/ui/card";
 
 type Props = {
   name: string;
@@ -9,20 +8,20 @@ type Props = {
 
 export function MenuItemCard({ name, price, description }: Props) {
   return (
-    <Card className="border-amber-200">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{name}</CardTitle>
-          <Badge className="bg-amber-700 hover:bg-amber-800 text-white">
-            ¥{price.toLocaleString()}
-          </Badge>
+    <Card className="border-amber-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+      <CardContent className="flex items-start justify-between gap-4 py-5">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-amber-900 text-base">{name}</p>
+          {description && (
+            <p className="text-sm text-amber-700/70 mt-1 leading-relaxed">{description}</p>
+          )}
         </div>
-      </CardHeader>
-      {description && (
-        <CardContent>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </CardContent>
-      )}
+        <div className="shrink-0 text-right">
+          <span className="text-lg font-bold text-amber-800">
+            ¥{price.toLocaleString()}
+          </span>
+        </div>
+      </CardContent>
     </Card>
   );
 }

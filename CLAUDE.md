@@ -140,6 +140,15 @@ apps/web/drizzle/
 4. `git add apps/web/drizzle/` でコミット（`migrations/` と `migrations/meta/` 両方）
 5. `git push` & PR 作成 → マージ時に自動で本番環境に migration 実行
 
+## UI Components
+
+UIコンポーネントには **shadcn/ui** を使用する。
+
+- コンポーネントは `apps/web/app/components/ui/` に配置済み
+- 新しいコンポーネントが必要な場合は `pnpm dlx shadcn@latest add <component>` で追加
+- スタイルは Tailwind CSS v4 + shadcn/ui のデザイントークン（CSS変数）を使う
+- アイコンは `lucide-react` を使用
+
 ## Code Review
 
 CodeRabbitが自動レビューを行う（日本語）。レビューコメントへの返答もCodeRabbitが自動対応する。
