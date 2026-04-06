@@ -9,7 +9,7 @@
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "cd:typegen": "react-router typegen",
-    "typecheck": "pnpm run cd:typegen && tsc",
+    "typecheck": "pnpm run cd:typegen && tsc && tsc --project tsconfig.workers.json --noEmit",
     "check": "pnpm lint && pnpm format:check",
     "deploy": "wrangler deploy",
     "test": "vitest run",

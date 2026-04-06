@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { applyD1Migrations, env } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -9,7 +10,7 @@ beforeAll(async () => {
 });
 
 describe("getAvailableMenuItems", () => {
-  let db: ReturnType<typeof drizzle>;
+  let db: ReturnType<typeof drizzle<Record<string, never>>>;
 
   beforeEach(async () => {
     db = drizzle(env.DB);
