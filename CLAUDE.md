@@ -149,6 +149,70 @@ UIコンポーネントには **shadcn/ui** を使用する。
 - スタイルは Tailwind CSS v4 + shadcn/ui のデザイントークン（CSS変数）を使う
 - アイコンは `lucide-react` を使用
 
+## Testing
+
+### テストの種類と使い分け
+
+| コマンド | 環境 | 対象ファイル | 用途 |
+|---|---|---|---|
+| `pnpm test` | jsdom | `*.test.ts(x)` | コンポーネント・ユーティリティ |
+| `pnpm test:workers` | workerd (本物のD1) | `*.workers.test.ts` | DBクエリ（`features/*/queries.ts`）|
+
+### DBクエリのテスト（`*.workers.test.ts`）
+
+`@cloudflare/vitest-pool-workers` を使い、本物の D1（Miniflare）で動作する。モックは使わない。
+
+**テストファイルの雛形:**
+
+```ts
+/// <reference types="@cloudflare/vitest-pool-workers/types" />
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+import { drizzle } from "drizzle-orm/d1";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { someTable } from "../../../db/schema";
+import { someQuery } from "./queries";
+
+type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
+const testEnv = env as TestEnv;
+
+beforeAll(async () => {
+  await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
+});
+
+describe("someQuery", () => {
+  let db: ReturnType<typeof drizzle>;
+
+  beforeEach(async () => {
+    db = drizzle(testEnv.DB);
+    await db.delete(someTable); // テストごとにクリア
+  });
+
+  it("期待する動作の説明", async () => {
+    // Arrange: テストデータ投入
+    // Act: クエリ実行
+    // Assert: 結果検証
+  });
+});
+```
+
+**注意点:**
+- インポートは `~/` エイリアス不可、相対パスを使うこと（workerd 環境でエイリアスが解決されないため）
+- `*.workers.test.ts` は本番 `tsconfig.json` の exclude に含まれているので `tsc` の対象外。型チェックは `pnpm typecheck` の中で `tsconfig.workers.json` 経由で実行される
+
+### コンポーネントのテスト（`*.test.tsx`）
+
+UIロジックがあるものだけ書く。表示だけのコンポーネントはスキップで十分。
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { SomeComponent } from "./SomeComponent";
+
+it("説明", () => {
+  render(<SomeComponent prop="value" />);
+  expect(screen.getByText("期待するテキスト")).toBeInTheDocument();
+});
+```
+
 ## Code Review
 
 CodeRabbitが自動レビューを行う（日本語）。レビューコメントへの返答もCodeRabbitが自動対応する。
