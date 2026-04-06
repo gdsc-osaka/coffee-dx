@@ -1,5 +1,60 @@
 # coffee-dx
 
+## 開発環境のセットアップ
+
+### 前提条件
+
+- [Node.js](https://nodejs.org/) (LTS 推奨)
+- [pnpm](https://pnpm.io/) v10.13.1 以上
+
+```bash
+npm install -g pnpm
+```
+
+### 手順
+
+#### 1. リポジトリのクローン
+
+```bash
+git clone <repository-url>
+cd coffee-dx
+```
+
+#### 2. 依存関係のインストール
+
+`apps/web` ディレクトリで依存関係をインストールする。
+
+```bash
+cd apps/web
+pnpm install
+```
+
+#### 3. ローカル DB マイグレーション
+
+Cloudflare D1 のローカル環境にマイグレーションを適用する。
+
+```bash
+pnpm migrate:local
+```
+
+#### 4. 型定義の生成
+
+React Router のルート型を生成する。
+
+```bash
+pnpm cd:typegen
+```
+
+#### 5. 開発サーバーの起動
+
+```bash
+pnpm dev
+```
+
+ブラウザで `http://localhost:5173` を開く。
+
+---
+
 ## Linearを用いた開発フロー
 
 ### 手順
