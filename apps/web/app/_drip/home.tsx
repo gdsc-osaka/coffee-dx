@@ -28,9 +28,7 @@ export async function loader({ context }: Route.LoaderArgs) {
     .from(orders)
     .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(
-      eq(orders.status, "pending"),
-    )
+    .where(eq(orders.status, "pending"))
     .orderBy(orders.createdAt);
 
   const brewingOrders = await db
@@ -46,14 +44,10 @@ export async function loader({ context }: Route.LoaderArgs) {
     .from(orders)
     .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(
-      eq(orders.status, "brewing"),
-    )
+    .where(eq(orders.status, "brewing"))
     .orderBy(orders.createdAt);
 
-  const groupByOrder = (
-    rows: typeof pendingOrders,
-  ) => {
+  const groupByOrder = (rows: typeof pendingOrders) => {
     const map = new Map<
       string,
       {
@@ -96,8 +90,7 @@ export default function DripHome() {
 
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-3">
-          ドリップ中{" "}
-          <Badge variant="default">{brewing.length}</Badge>
+          ドリップ中 <Badge variant="default">{brewing.length}</Badge>
         </h2>
         {brewing.length === 0 ? (
           <p className="text-muted-foreground">ドリップ中の注文はありません</p>
@@ -112,8 +105,7 @@ export default function DripHome() {
 
       <section>
         <h2 className="text-lg font-semibold mb-3">
-          未着手{" "}
-          <Badge variant="secondary">{pending.length}</Badge>
+          未着手 <Badge variant="secondary">{pending.length}</Badge>
         </h2>
         {pending.length === 0 ? (
           <p className="text-muted-foreground">未着手の注文はありません</p>
@@ -145,9 +137,7 @@ function OrderCard({
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span className="text-xl">#{order.orderNumber}</span>
-          <Badge
-            variant={order.status === "brewing" ? "default" : "secondary"}
-          >
+          <Badge variant={order.status === "brewing" ? "default" : "secondary"}>
             {statusLabel[order.status] ?? order.status}
           </Badge>
         </CardTitle>
