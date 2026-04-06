@@ -19,7 +19,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center gap-3">
           <Coffee className="size-6 text-white" />
           <div>
-            <h1 className="text-xl font-bold text-white tracking-wide">コーヒー同好会</h1>
+            <h1 className="text-xl font-bold text-white tracking-wide">コーヒー愛好会</h1>
             <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Today's Menu</p>
           </div>
         </div>
