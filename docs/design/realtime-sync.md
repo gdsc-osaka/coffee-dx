@@ -45,7 +45,7 @@ pending ──→ brewing ──→ ready ──→ completed
     ▼                         ▼
 Cloudflare Worker  ──────→  Durable Object (OrderDO)
                                │        │
-                          メモリ更新  D1（非同期書き込み）
+                          D1（同期書き込み）  メモリ更新
                                │
                           ブロードキャスト
 ```
@@ -56,7 +56,7 @@ Cloudflare Worker  ──────→  Durable Object (OrderDO)
 - **メモリ上で注文一覧を保持**（source of truth）
 - 接続中 WebSocket クライアントを管理
 - 状態変化時に全接続クライアントへブロードキャスト
-- **D1 への非同期書き込み**（Worker は委譲するだけ）
+- **D1 への同期書き込み**（冪等チェック・楽観ロック・Exponential retry）
 
 ### D1 の責務
 
@@ -95,8 +95,9 @@ Worker
   ▼
 Worker
   └─ DO.cancelOrder(orderId) を呼び出し
-       ├─ 対象注文を cancelled に更新（pending / brewing のみ受け付ける）
-       ├─ D1 の orders.status を非同期で更新
+       ├─ 冪等チェック：既に cancelled なら即 200 を返す
+       ├─ D1 の orders.status を同期で更新（楽観ロック・リトライあり）
+       ├─ メモリ上の注文を cancelled に更新
        └─ 全スタッフ WS クライアントにブロードキャスト
             { type: "ORDER_UPDATED", orderId: "...", status: "cancelled" }
 ```
@@ -110,8 +111,9 @@ Worker
   ▼
 Worker
   └─ DO.startBrewing(orderId) を呼び出し
-       ├─ 対象注文を brewing に更新
-       ├─ D1 の orders.status を非同期で更新
+       ├─ 冪等チェック：既に brewing なら即 200 を返す
+       ├─ D1 の orders.status を同期で更新（楽観ロック・リトライあり）
+       ├─ メモリ上の注文を brewing に更新
        └─ 全スタッフ WS クライアントにブロードキャスト
             { type: "ORDER_UPDATED", orderId: "...", status: "brewing" }
 ```
@@ -125,8 +127,9 @@ Worker
   ▼
 Worker
   └─ DO.completeBrewing(orderId) を呼び出し
-       ├─ 対象注文を ready に更新
-       ├─ D1 の orders.status を非同期で更新
+       ├─ 冪等チェック：既に ready なら即 200 を返す
+       ├─ D1 の orders.status を同期で更新（楽観ロック・リトライあり）
+       ├─ メモリ上の注文を ready に更新
        └─ 全スタッフ WS クライアントにブロードキャスト
             { type: "ORDER_UPDATED", orderId: "...", status: "ready" }
 ```
@@ -140,90 +143,63 @@ Worker
   ▼
 Worker
   └─ DO.closeOrder(orderId) を呼び出し
-       ├─ 対象注文を completed に更新
-       ├─ D1 の orders.status を非同期で更新
+       ├─ 冪等チェック：既に completed なら即 200 を返す
+       ├─ D1 の orders.status を同期で更新（楽観ロック・リトライあり）
+       ├─ メモリ上の注文を completed に更新
        └─ 全スタッフ WS クライアントにブロードキャスト
             { type: "ORDER_UPDATED", orderId: "...", status: "completed" }
 ```
 
 ---
 
-## D1 書き込みの非同期化
+## D1 書き込みの同期化
 
-ステータス更新は DO がメモリとブロードキャストを先に処理し、D1 への書き込みを非同期で行う。Worker はDOに委譲するだけで D1 を直接書かない。
+ステータス更新は DO が D1 に同期で書き込んでからメモリを更新・ブロードキャストする。このスケール（クライアント数 ~4、高々 10 TPS）では D1 側エラーのリスクが小さいため、同期書き込み＋リトライで十分と判断した。
 
 ```ts
 // DO メソッド内のイメージ
 class OrderDurableObject {
   async startBrewing(orderId: string) {
-    // 1. メモリ更新（即時）
-    this.orders.get(orderId).status = "brewing";
-    // 2. ブロードキャスト（即時）
-    this.broadcast({ type: "ORDER_UPDATED", orderId, status: "brewing" });
-    // 3. D1 書き込み（非同期・リトライあり）
-    this.ctx.waitUntil(
-      this.writeWithRetry(() =>
-        this.db.update(orders).set({ status: "brewing" }).where(eq(orders.id, orderId))
-      )
+    // 1. 冪等チェック：既に目標ステータスなら即成功を返す
+    if (this.orders.get(orderId)?.status === "brewing") {
+      return new Response("Already brewing", { status: 200 });
+    }
+    // 2. D1 書き込み（楽観ロック・Exponential retry）
+    await this.writeWithRetry(() =>
+      this.db.update(orders)
+        .set({ status: "brewing" })
+        .where(and(eq(orders.id, orderId), eq(orders.status, "pending")))
     );
+    // 3. メモリ更新
+    this.orders.get(orderId).status = "brewing";
+    // 4. ブロードキャスト
+    this.broadcast({ type: "ORDER_UPDATED", orderId, status: "brewing" });
+    return new Response("Updated to brewing", { status: 200 });
   }
-}
-```
 
-**トレードオフ:**
-
-| | DO先・D1後（採用） | DO・D1同期 |
-|--|---|---|
-| レスポンス速度 | 速い | 遅い |
-| リードパス | DO メモリから返すため D1 不要 | D1 クエリが発生 |
-| 不整合リスク | D1 書き込み失敗時に乖離（リトライで軽減） | なし |
-
-**D1 書き込み失敗時の対処:**
-
-`ctx.waitUntil` は DO の生存時間を延ばすが、書き込み成功を保証するものではない。また D1 の書き込みクエリは自動リトライされない。そのため DO 内でアプリケーション層の明示的なリトライを実装する。
-
-```ts
-// Exponential backoff リトライ（最大3回）＋ 失敗記録
-async writeWithRetry(
-  fn: () => Promise<unknown>,
-  failureKey: string, // DO Storage に記録するキー（例: "fail:order-uuid"）
-  attempts = 3
-): Promise<void> {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      await fn();
-      // 成功時：以前の失敗記録があれば削除
-      await this.ctx.storage.delete(failureKey);
-      return;
-    } catch (e) {
-      if (i === attempts - 1) {
-        // 全リトライ失敗 → DO Storage に記録してリカバリ待ち
-        console.error("[OrderDO] D1 write failed after retries", e);
-        await this.ctx.storage.put(failureKey, {
-          failedAt: new Date().toISOString(),
-          error: String(e),
-        });
+  // Exponential backoff リトライ（最大3回）
+  async writeWithRetry(fn: () => Promise<unknown>, attempts = 3): Promise<void> {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        await fn();
         return;
+      } catch (e) {
+        if (i === attempts - 1) {
+          console.error("[OrderDO] D1 write failed after retries", e);
+          throw e; // 全リトライ失敗時は 500 を返す
+        }
+        await new Promise((r) => setTimeout(r, 200 * 2 ** i)); // 200ms, 400ms
       }
-      await new Promise((r) => setTimeout(r, 200 * 2 ** i)); // 200ms, 400ms
     }
   }
 }
 ```
 
+**冪等性と楽観ロック:**
+
+- **冪等チェック（DO メモリ）**: D1 成功後にネットワークエラーで応答が遮断された場合、クライアントがリトライしても DO メモリの状態を見て即 200 を返す
+- **楽観ロック（SQL WHERE 句）**: `WHERE status = '現在のステータス'` を付けることで、stale state からの二重更新を防ぐ。0 rows affected（既に別の状態）の場合は DO メモリのチェックで処理済みと判断する
 - UPDATE クエリは同じステータスを再度書くだけなので、リトライは冪等（idempotent）
-- 全リトライ失敗時は DO Storage（永続 KV）に失敗レコードを記録する。DO のメモリは正常なのでスタッフ画面への影響はない
-
-**手動リカバリ手順:**
-
-全リトライ失敗後は DO Storage の失敗レコードをもとに手動でリカバリする。
-
-1. 管理者が `GET /admin/recovery` にアクセスし、DO Storage の失敗レコード一覧を確認する
-2. DO のメモリ（source of truth）と D1 の乖離を特定する
-3. `POST /admin/recovery/apply` で DO のメモリ状態を D1 に同期する（DO から全注文を読み取り D1 を上書き）
-4. 適用後、DO Storage の失敗レコードを削除する
-
-> 管理画面（`/admin`）はイベント当日の運用補助を目的とし、スタッフ認証が必要。
 
 ---
 
