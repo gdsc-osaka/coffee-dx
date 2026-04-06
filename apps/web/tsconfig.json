@@ -1,6 +1,6 @@
 {
   "include": ["**/*", "**/.server/**/*", "**/.client/**/*", ".react-router/types/**/*"],
-  "exclude": ["vitest.config.ts", "app/**/*.workers.test.ts", "app/**/*.workers.spec.ts"],
+  "exclude": ["vitest.config.ts", "vitest.workers.config.ts", "app/**/*.workers.test.ts", "app/**/*.workers.spec.ts"],
   "compilerOptions": {
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "types": ["@cloudflare/workers-types", "vite/client"],

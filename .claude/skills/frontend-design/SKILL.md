@@ -8,13 +8,13 @@ description: |
 
 # Frontend Design Skill
 
-Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when building web components, pages, or applications in the client directory. Generates creative, polished code that avoids generic AI aesthetics.
+Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when building web components, pages, or applications in the `apps/web/app/` directory. Generates creative, polished code that avoids generic AI aesthetics.
 
 ## When to Use
 
-- Creating new React components in `client/app/` or `client_admin/app/`
-- Building new pages in `client/app/` or `client_admin/app/`
-- Designing theme configurations in `client/theme/` or `client_admin/theme/`
+- Creating new React components in `apps/web/app/`
+- Building new pages under `apps/web/app/routes/`
+- Designing UI for `_customer/`, `_drip/`, or `_cashier/` layouts
 - Any UI/UX work that requires visual design decisions
 
 ## Design Thinking Process
@@ -34,7 +34,7 @@ Before coding, understand the context and commit to a **BOLD aesthetic direction
    - Art deco/geometric
    - Soft/pastel
    - Industrial/utilitarian
-3. **Constraints**: Technical requirements (MUI components, performance, accessibility, mobile-first)
+3. **Constraints**: Technical requirements (shadcn/ui components, performance, accessibility, mobile-first)
 4. **Differentiation**: What makes this UNFORGETTABLE?
 
 **CRITICAL**: Choose a clear conceptual direction and execute it with precision.
@@ -59,13 +59,13 @@ All frontend code must be:
 
 ### Color & Theme
 - Commit to a cohesive aesthetic
-- Use MUI theme system for consistency
+- Use Tailwind CSS v4 design tokens (CSS variables) for consistency
 - Dominant colors with sharp accents outperform timid, evenly-distributed palettes
 - **AVOID**: Cliched purple gradients on white backgrounds
 
 ### Motion & Animation
 - Use animations for effects and micro-interactions
-- Prioritize CSS-only solutions or MUI transitions
+- Prioritize CSS-only solutions or Tailwind transitions
 - Focus on high-impact moments:
   - Well-orchestrated page load with staggered reveals
   - Scroll-triggering effects
@@ -100,18 +100,17 @@ All frontend code must be:
 ## Project-Specific Considerations
 
 ### Tech Stack
-- **Framework**: Next.js 16 with App Router
-- **UI Library**: Material-UI (MUI) v7 - always use MUI components as base
-- **Forms**: react-hook-form with zod validation
-- **State**: TanStack Query for server state
-- **React**: React 19
+- **Framework**: Remix (React Router v7) on Cloudflare Workers
+- **UI Library**: shadcn/ui - always use shadcn/ui components as base
+- **Icons**: lucide-react
+- **Styling**: Tailwind CSS v4 with CSS variables
+- **Shared components**: `packages/ui/`
 
 ### Mobile-First PWA
 - Design for smartphone screens first
 - Tap targets: minimum 44x44px
 - Consider touch gestures
 - Optimize for performance (avoid unnecessary re-renders)
-- Use Next.js Image for optimized images
 
 ### Consistency Check
 - Always review other pages for design patterns
@@ -123,7 +122,7 @@ All frontend code must be:
 1. Understand the component/page purpose
 2. Choose an aesthetic direction that fits
 3. Sketch the visual hierarchy mentally
-4. Implement using MUI components as base
+4. Implement using shadcn/ui components as base
 5. Add distinctive typography, colors, and motion
 6. Refine details for mobile-first experience
 7. Test on various screen sizes
