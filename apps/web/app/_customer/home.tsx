@@ -1,16 +1,11 @@
-import { drizzle } from "drizzle-orm/d1";
-import { eq } from "drizzle-orm";
 import type { Route } from "./+types/home";
-import { menuItems } from "../../db/schema";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
-import { Badge } from "../components/ui/badge";
+import { createDb } from "~/lib/db";
+import { getAvailableMenuItems } from "~/features/menu/queries";
+import { MenuItemCard } from "./components/MenuItemCard";
 
 export async function loader({ context }: Route.LoaderArgs) {
-  const db = drizzle(context.cloudflare.env.DB);
-  const items = await db
-    .select()
-    .from(menuItems)
-    .where(eq(menuItems.isAvailable, 1));
+  const db = createDb(context.cloudflare.env.DB);
+  const items = await getAvailableMenuItems(db);
   return { items };
 }
 
@@ -26,21 +21,12 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
       <main className="max-w-lg mx-auto p-4 mt-4 space-y-3">
         {items.map((item) => (
-          <Card key={item.id} className="border-amber-200">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">{item.name}</CardTitle>
-                <Badge className="bg-amber-700 hover:bg-amber-800 text-white">
-                  ¥{item.price.toLocaleString()}
-                </Badge>
-              </div>
-            </CardHeader>
-            {item.description && (
-              <CardContent>
-                <p className="text-sm text-muted-foreground">{item.description}</p>
-              </CardContent>
-            )}
-          </Card>
+          <MenuItemCard
+            key={item.id}
+            name={item.name}
+            price={item.price}
+            description={item.description}
+          />
         ))}
 
         {items.length === 0 && (
