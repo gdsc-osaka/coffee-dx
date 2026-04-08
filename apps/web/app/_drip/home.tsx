@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { useLoaderData } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "../../db/client";
@@ -15,7 +15,7 @@ export async function loader({ context }: Route.LoaderArgs) {
   const { env } = context.cloudflare as { env: { DB: D1Database } };
   const db = createDb(env.DB);
 
-  const pendingOrders = await db
+  const pendingOrBrewingOrders = await db
     .select({
       id: orders.id,
       orderNumber: orders.orderNumber,
@@ -28,26 +28,10 @@ export async function loader({ context }: Route.LoaderArgs) {
     .from(orders)
     .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
     .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(eq(orders.status, "pending"))
+    .where(inArray(orders.status, ["pending", "brewing"]))
     .orderBy(orders.createdAt);
 
-  const brewingOrders = await db
-    .select({
-      id: orders.id,
-      orderNumber: orders.orderNumber,
-      status: orders.status,
-      createdAt: orders.createdAt,
-      itemId: orderItems.id,
-      menuItemName: menuItems.name,
-      quantity: orderItems.quantity,
-    })
-    .from(orders)
-    .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
-    .innerJoin(menuItems, eq(orderItems.menuItemId, menuItems.id))
-    .where(eq(orders.status, "brewing"))
-    .orderBy(orders.createdAt);
-
-  const groupByOrder = (rows: typeof pendingOrders) => {
+  const groupByOrder = (rows: typeof pendingOrBrewingOrders) => {
     const map = new Map<
       string,
       {
@@ -75,9 +59,10 @@ export async function loader({ context }: Route.LoaderArgs) {
     return [...map.values()];
   };
 
+  const allOrders = groupByOrder(pendingOrBrewingOrders);
   return {
-    pending: groupByOrder(pendingOrders),
-    brewing: groupByOrder(brewingOrders),
+    pending: allOrders.filter((o) => o.status === "pending"),
+    brewing: allOrders.filter((o) => o.status === "brewing"),
   };
 }
 
