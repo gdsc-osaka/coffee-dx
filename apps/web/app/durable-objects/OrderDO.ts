@@ -76,38 +76,54 @@ export class OrderDurableObject implements DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
+  private initPromise?: Promise<void>;
+
   // DO 再起動時に D1 から進行中の注文を復元する
   private async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    const db = createDb(this.env.DB);
-    const activeOrders = await db
-      .select()
-      .from(orders)
-      .where(inArray(orders.status, ["pending", "brewing", "ready"]));
+    if (!this.initPromise) {
+      this.initPromise = this.state.blockConcurrencyWhile(async () => {
+        const db = createDb(this.env.DB);
+        const activeOrders = await db
+          .select()
+          .from(orders)
+          .where(inArray(orders.status, ["pending", "brewing", "ready"]));
 
-    const allItems =
-      activeOrders.length > 0
-        ? await db
-            .select()
-            .from(orderItems)
-            .where(
-              inArray(
-                orderItems.orderId,
-                activeOrders.map((o) => o.id),
-              ),
-            )
-        : [];
+        const allItems =
+          activeOrders.length > 0
+            ? await db
+                .select()
+                .from(orderItems)
+                .where(
+                  inArray(
+                    orderItems.orderId,
+                    activeOrders.map((o) => o.id),
+                  ),
+                )
+            : [];
 
-    for (const order of activeOrders) {
-      this.orders.set(order.id, {
-        ...order,
-        status: order.status as OrderStatus,
-        items: allItems.filter((item) => item.orderId === order.id),
+        const itemsByOrderId = new Map<string, typeof allItems>();
+        for (const item of allItems) {
+          if (!itemsByOrderId.has(item.orderId)) {
+            itemsByOrderId.set(item.orderId, []);
+          }
+          itemsByOrderId.get(item.orderId)!.push(item);
+        }
+
+        for (const order of activeOrders) {
+          this.orders.set(order.id, {
+            ...order,
+            status: order.status as OrderStatus,
+            items: itemsByOrderId.get(order.id) || [],
+          });
+        }
+
+        this.initialized = true;
       });
     }
 
-    this.initialized = true;
+    return this.initPromise;
   }
 
   private async handleWebSocket(): Promise<Response> {
@@ -134,7 +150,7 @@ export class OrderDurableObject implements DurableObject {
     this.broadcast({ type: "ORDER_CREATED", order });
   }
 
-  // 冪等チェック → D1 同期書き込み（楽観ロック） → メモリ更新 → ブロードキャスト
+  // 冪等チェック → メモリでの同期状態チェック → D1 同期書き込み（楽観ロック） → リザルト確認 → メモリ更新 → ブロードキャスト
   private async transitionStatus(
     orderId: string,
     targetStatus: OrderStatus,
@@ -146,16 +162,26 @@ export class OrderDurableObject implements DurableObject {
     // 冪等チェック：既に目標ステータスなら即 200
     if (order.status === targetStatus) return new Response(null, { status: 200 });
 
+    // DOのシングルスレッド特性を活かして、await前にメモリ上のステータスを同期チェック
+    if (!expectedStatuses.includes(order.status)) {
+      return new Response(`Conflict: Order status is currently ${order.status}`, { status: 409 });
+    }
+
     const db = createDb(this.env.DB);
-    await this.writeWithRetry(() =>
+    const result = await this.writeWithRetry(() =>
       db
         .update(orders)
         .set({
           status: targetStatus,
           updatedAt: sql`(datetime('now', '+9 hours'))`,
         })
-        .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses))),
+        .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses)))
     );
+
+    // 楽観ロック: D1のステータスが別のリクエストで書き換えられており更新対象が0行だった場合
+    if ((result as any).meta?.changes === 0) {
+      return new Response("Conflict: D1 state was unexpectedly changed", { status: 409 });
+    }
 
     order.status = targetStatus;
     this.broadcast({ type: "ORDER_UPDATED", orderId, status: targetStatus });
@@ -163,11 +189,10 @@ export class OrderDurableObject implements DurableObject {
   }
 
   // Exponential backoff リトライ（最大3回: 200ms → 400ms）
-  private async writeWithRetry(fn: () => Promise<unknown>, attempts = 3): Promise<void> {
+  private async writeWithRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
     for (let i = 0; i < attempts; i++) {
       try {
-        await fn();
-        return;
+        return await fn();
       } catch (e) {
         if (i === attempts - 1) {
           console.error("[OrderDO] D1 write failed after retries", e);
@@ -176,6 +201,7 @@ export class OrderDurableObject implements DurableObject {
         await new Promise((r) => setTimeout(r, 200 * 2 ** i));
       }
     }
+    throw new Error("Unreachable");
   }
 
   private broadcast(message: ServerMessage): void {

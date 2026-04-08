@@ -1,6 +1,8 @@
 import { createRequestHandler } from "react-router";
 export { OrderDurableObject } from "./app/durable-objects/OrderDO";
 
+import { isValidEventId } from "./app/lib/order-do";
+
 // Wrangler の本番バンドル（esbuild）では Vite が import.meta.env を注入しない
 const mode = (import.meta as { env?: { MODE?: string } }).env?.MODE ?? "production";
 
@@ -15,8 +17,8 @@ export default {
 
     if (url.pathname === "/ws") {
       const eventId = url.searchParams.get("eventId");
-      if (!eventId) {
-        return new Response("eventId is required", { status: 400 });
+      if (!eventId || !isValidEventId(eventId)) {
+        return new Response("Invalid or missing eventId. Expected format: YYYY-MM-DD", { status: 400 });
       }
       const id = env.ORDER_DO.idFromName(`event-${eventId}`);
       const stub = env.ORDER_DO.get(id);

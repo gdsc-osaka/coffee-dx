@@ -1,12 +1,17 @@
-import type { OrderDurableObject } from "../durable-objects/OrderDO";
-
 /** JST の YYYY-MM-DD をイベントID として使う */
 export function getBusinessDate(): string {
   const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return jst.toISOString().slice(0, 10);
 }
 
+export function isValidEventId(eventId: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(eventId);
+}
+
 export function getOrderDOStub(env: Env, eventId: string): DurableObjectStub {
+  if (!isValidEventId(eventId)) {
+    throw new Error(`Invalid eventId format: ${eventId}`);
+  }
   const id = env.ORDER_DO.idFromName(`event-${eventId}`);
   return env.ORDER_DO.get(id);
 }
