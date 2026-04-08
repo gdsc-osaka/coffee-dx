@@ -5,7 +5,15 @@ export function getBusinessDate(): string {
 }
 
 export function isValidEventId(eventId: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(eventId);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventId)) {
+    return false;
+  }
+  const date = new Date(eventId);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+  // 存在しない日付（例: 2026-02-30等）がJSエンジンにより自動補正されて別の日付になるのを防ぐ
+  return date.toISOString().startsWith(eventId);
 }
 
 export function getOrderDOStub(env: Env, eventId: string): DurableObjectStub {
@@ -22,7 +30,7 @@ export async function callOrderDO(
   body?: unknown,
 ): Promise<void> {
   const res = await stub.fetch(
-    new Request(`https://do${path}`, {
+    new Request(new URL(path, "https://do").toString(), {
       method: "POST",
       headers: body ? { "Content-Type": "application/json" } : undefined,
       body: body ? JSON.stringify(body) : undefined,

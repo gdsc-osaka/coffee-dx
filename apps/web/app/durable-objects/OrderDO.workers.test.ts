@@ -6,7 +6,6 @@ import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, afterEach } from "vitest";
 import { menuItems, orderItems, orders } from "../../db/schema";
-import { OrderDurableObject } from "./OrderDO";
 
 type TestEnv = Env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as unknown as TestEnv;

@@ -16,6 +16,10 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
+      if (request.headers.get("Upgrade") !== "websocket") {
+        return new Response("Expected Upgrade: websocket", { status: 426 });
+      }
+
       const eventId = url.searchParams.get("eventId");
       if (!eventId || !isValidEventId(eventId)) {
         return new Response("Invalid or missing eventId. Expected format: YYYY-MM-DD", { status: 400 });

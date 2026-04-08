@@ -167,13 +167,15 @@ export class OrderDurableObject implements DurableObject {
       return new Response(`Conflict: Order status is currently ${order.status}`, { status: 409 });
     }
 
+    const newUpdatedAt = new Date().toISOString();
+
     const db = createDb(this.env.DB);
     const result = await this.writeWithRetry(() =>
       db
         .update(orders)
         .set({
           status: targetStatus,
-          updatedAt: sql`(datetime('now', '+9 hours'))`,
+          updatedAt: newUpdatedAt,
         })
         .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses)))
     );
@@ -184,6 +186,7 @@ export class OrderDurableObject implements DurableObject {
     }
 
     order.status = targetStatus;
+    order.updatedAt = newUpdatedAt;
     this.broadcast({ type: "ORDER_UPDATED", orderId, status: targetStatus });
     return new Response(null, { status: 200 });
   }
