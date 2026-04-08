@@ -20,4 +20,4 @@ class_name = "OrderDurableObject"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["OrderDurableObject"]
+new_sqlite_classes = ["OrderDurableObject"]
