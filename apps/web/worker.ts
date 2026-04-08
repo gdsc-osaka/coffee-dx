@@ -18,7 +18,9 @@ export default {
     if (url.pathname === "/ws") {
       const eventId = url.searchParams.get("eventId");
       if (!eventId || !isValidEventId(eventId)) {
-        return new Response("Invalid or missing eventId. Expected format: YYYY-MM-DD", { status: 400 });
+        return new Response("Invalid or missing eventId. Expected format: YYYY-MM-DD", {
+          status: 400,
+        });
       }
       const id = env.ORDER_DO.idFromName(`event-${eventId}`);
       const stub = env.ORDER_DO.get(id);

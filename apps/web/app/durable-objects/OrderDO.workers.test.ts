@@ -52,7 +52,9 @@ describe("OrderDO", () => {
   };
 
   const connectWebSocket = async () => {
-    const response = await stub.fetch(new Request("http://localhost/ws", { headers: { Upgrade: "websocket" } }));
+    const response = await stub.fetch(
+      new Request("http://localhost/ws", { headers: { Upgrade: "websocket" } }),
+    );
     expect(response.status).toBe(101);
     expect(response.webSocket).toBeDefined();
 
@@ -64,12 +66,29 @@ describe("OrderDO", () => {
   it("初回接続時にSNAPSHOTを受信する（既存データあり）", async () => {
     // 事前に DB に pending イベントを1つ入れておく
     await db.insert(menuItems).values([{ id: "m1", name: "coffee", price: 100, isAvailable: 1 }]);
-    await db.insert(orders).values([
-      { id: "o1", orderNumber: 101, status: "pending", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    ]);
-    await db.insert(orderItems).values([
-      { id: "i1", orderId: "o1", menuItemId: "m1", quantity: 2, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    ]);
+    await db
+      .insert(orders)
+      .values([
+        {
+          id: "o1",
+          orderNumber: 101,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]);
+    await db
+      .insert(orderItems)
+      .values([
+        {
+          id: "i1",
+          orderId: "o1",
+          menuItemId: "m1",
+          quantity: 2,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]);
 
     const ws = await connectWebSocket();
     const msgPromise = getNextMessage(ws!);
@@ -114,9 +133,17 @@ describe("OrderDO", () => {
 
   it("ステータスが遷移されると更新がDBに反映され ORDER_UPDATED がブロードキャストされる", async () => {
     // DBに事前に注文を作成しておく（本来のWorker APIの挙動を模倣）
-    await db.insert(orders).values([
-      { id: "o3", orderNumber: 103, status: "pending", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-    ]);
+    await db
+      .insert(orders)
+      .values([
+        {
+          id: "o3",
+          orderNumber: 103,
+          status: "pending",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ]);
 
     const ws = await connectWebSocket();
     let msgPromise = getNextMessage(ws);

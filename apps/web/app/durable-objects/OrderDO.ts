@@ -175,7 +175,7 @@ export class OrderDurableObject implements DurableObject {
           status: targetStatus,
           updatedAt: sql`(datetime('now', '+9 hours'))`,
         })
-        .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses)))
+        .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses))),
     );
 
     // 楽観ロック: D1のステータスが別のリクエストで書き換えられており更新対象が0行だった場合
