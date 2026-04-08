@@ -6,7 +6,7 @@ import { menuItems, orderItems, orders } from "../../db/schema";
 import { Badge } from "~/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 
-const statusLabel: Record<"pending" | "brewing", string> = { 
+const statusLabel: Record<"pending" | "brewing", string> = {
   pending: "未着手",
   brewing: "ドリップ中",
 };
