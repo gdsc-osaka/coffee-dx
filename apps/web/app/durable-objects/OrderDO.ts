@@ -91,7 +91,12 @@ export class OrderDurableObject implements DurableObject {
         ? await db
             .select()
             .from(orderItems)
-            .where(inArray(orderItems.orderId, activeOrders.map((o) => o.id)))
+            .where(
+              inArray(
+                orderItems.orderId,
+                activeOrders.map((o) => o.id),
+              ),
+            )
         : [];
 
     for (const order of activeOrders) {
