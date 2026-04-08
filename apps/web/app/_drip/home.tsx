@@ -40,7 +40,7 @@ export async function loader({ context }: Route.LoaderArgs) {
         orderNumber: number;
         status: string;
         createdAt: string;
-        items: { name: string; quantity: number }[];
+        items: { menuItemId: string; name: string; quantity: number }[];
       }
     >();
     for (const row of rows) {
@@ -55,7 +55,7 @@ export async function loader({ context }: Route.LoaderArgs) {
         };
         map.set(row.id, order);
       }
-      order.items.push({ name: row.menuItemName, quantity: row.quantity });
+      order.items.push({ menuItemId: row.itemId, name: row.menuItemName, quantity: row.quantity });
     }
     return [...map.values()];
   };
@@ -115,7 +115,7 @@ function OrderCard({
     orderNumber: number;
     status: string;
     createdAt: string;
-    items: { name: string; quantity: number }[];
+    items: { menuItemId: string; name: string; quantity: number }[];
   };
 }) {
   return (
@@ -124,15 +124,15 @@ function OrderCard({
         <CardTitle className="flex items-center justify-between">
           <span className="text-xl">#{order.orderNumber}</span>
           <Badge variant={order.status === "brewing" ? "default" : "secondary"}>
-            {statusLabel[order.status] ?? order.status}
+            {statusLabel[order.status as keyof typeof statusLabel] ?? order.status}
           </Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground">{order.createdAt}</p>
       </CardHeader>
       <CardContent>
         <ul className="space-y-1">
-          {order.items.map((item, i) => (
-            <li key={i} className="flex justify-between text-sm">
+          {order.items.map((item) => (
+            <li key={item.menuItemId} className="flex justify-between text-sm">
               <span>{item.name}</span>
               <span className="text-muted-foreground">×{item.quantity}</span>
             </li>
