@@ -15,6 +15,7 @@ export async function loader({ context }: Route.LoaderArgs) {
   const { env } = context.cloudflare as { env: { DB: D1Database } };
   const db = createDb(env.DB);
 
+  /** 未着手(pending)・ドリップ中(brewing)の注文を明細・メニュー名付きで取得 */
   const pendingOrBrewingOrders = await db
     .select({
       id: orders.id,
