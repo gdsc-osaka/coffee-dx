@@ -8,12 +8,7 @@ import { createDb } from "~/lib/db";
 import { getAvailableMenuItems } from "~/features/menu/queries";
 import { createOrder } from "~/features/order/actions";
 import { Button } from "~/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "~/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
 
 export async function loader({ context }: Route.LoaderArgs) {
@@ -81,9 +76,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     setCart((prev) => {
       const existing = prev.find((c) => c.menuItemId === item.id);
       if (existing) {
-        return prev.map((c) =>
-          c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c,
-        );
+        return prev.map((c) => (c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c));
       }
       return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
     });
@@ -176,9 +169,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                   #{completedOrderNumber}
                 </p>
               </div>
-              <p className="text-stone-500 text-sm text-center">
-                ドリップ完了後にお呼びします
-              </p>
+              <p className="text-stone-500 text-sm text-center">ドリップ完了後にお呼びします</p>
               <Button
                 type="button"
                 variant="outline"
