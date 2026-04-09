@@ -14,6 +14,10 @@ database_id = "548f7cf3-07db-4da6-b3a7-8f769d3a685d"
 migrations_dir = "drizzle/migrations"
 
 # Durable Objects
-# [[durable_objects.bindings]]
-# name = "ORDER_DO"
-# class_name = "OrderDurableObject"
+[[durable_objects.bindings]]
+name = "ORDER_DO"
+class_name = "OrderDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["OrderDurableObject"]
