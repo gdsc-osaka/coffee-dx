@@ -181,13 +181,19 @@ export class OrderDurableObject implements DurableObject {
     );
 
     // 楽観ロック: D1のステータスが別のリクエストで書き換えられており更新対象が0行だった場合
-    if ((result as any).meta?.changes === 0) {
+    if ((result as D1Result).meta?.changes === 0) {
       return new Response("Conflict: D1 state was unexpectedly changed", { status: 409 });
     }
 
     order.status = targetStatus;
     order.updatedAt = newUpdatedAt;
     this.broadcast({ type: "ORDER_UPDATED", orderId, status: targetStatus });
+
+    // 終端ステータスになったらメモリから削除して膨張を防ぐ
+    if (targetStatus === "completed" || targetStatus === "cancelled") {
+      this.orders.delete(orderId);
+    }
+
     return new Response(null, { status: 200 });
   }
 
