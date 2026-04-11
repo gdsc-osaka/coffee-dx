@@ -26,7 +26,7 @@
 
 1 注文の所要時間は以下とする（杯数 = order_items の quantity の合計）。
 
-```
+```text
 duration(order) = T_setup + T_cup × Σ quantity
 ```
 
@@ -89,28 +89,42 @@ const drippers: number[] = new Array(D).fill(0);
 
 `brewing` の注文はすでにどれかのドリッパーで進行中なので、**最も早く空く枠に**占有を積む。`drippers` を昇順ソートし、先頭に `duration(order)` を加算する。これを `brewing` の件数分繰り返す。
 
+実装の先頭で `brewing` の件数と `D` を比較し、超過していれば `console.warn` を出す。`D` は `OrderDurableObject` 側で強制される不変条件ではなく**見積もり用のパラメータ**なので、超過は「データ不整合」ではなく以下のいずれかを意味する：
+
+- `D` の設定値が実態より小さい（増やす必要がある）
+- スタッフが想定より多くの注文を並行して `brewing` にしてしまっている（運用ミスの可能性）
+
+検知後はそのまま計算を続行する（`drippers[0] += duration(o)` で「次に空く枠に追加で積む」挙動になり、推定値は過剰に悲観的になるが、致命的ではない）。監視アラートまでは本プロジェクトの規模では不要。
+
 ```ts
-for (const o of activeOrders.filter((x) => x.status === "brewing")) {
+const finishAt = new Map<string, number>(); // orderId -> 完了予定（相対秒）
+const brewingOrders = activeOrders.filter((x) => x.status === "brewing");
+
+if (brewingOrders.length > D) {
+  console.warn(
+    `[wait-time] brewing count (${brewingOrders.length}) exceeds configured drippers (${D}). ` +
+      `Either D is misconfigured or staff started too many orders in parallel.`,
+  );
+}
+
+for (const o of brewingOrders) {
   drippers.sort((a, b) => a - b);
   drippers[0] += duration(o);
+  finishAt.set(o.id, drippers[0] + T_serve); // 提供時間も足して客到着ベース
 }
 ```
-
-> ⚠️ `brewing` の件数が `D` を超えることは通常ないが、DO 再起動直後など一時的に超える可能性はある。超えた分も同じロジックで積めば自然に「次の枠」に回る。
 
 #### 3-2. pending 注文を FIFO で積む
 
 `pending` を `createdAt` 昇順で 1 件ずつ、最も早く空く枠に割り当てる。その注文の**完了予定時刻（相対秒）**を記録する。
 
 ```ts
-const finishAt = new Map<string, number>(); // orderId -> 完了予定（秒）
-
 for (const o of activeOrders
   .filter((x) => x.status === "pending")
   .sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
   drippers.sort((a, b) => a - b);
   drippers[0] += duration(o);
-  finishAt.set(o.id, drippers[0] + T_serve); // 提供時間も足して客到着ベース
+  finishAt.set(o.id, drippers[0] + T_serve);
 }
 ```
 
@@ -119,18 +133,6 @@ for (const o of activeOrders
 ```ts
 for (const o of activeOrders.filter((x) => x.status === "ready")) {
   finishAt.set(o.id, T_serve); // 今から T_serve 秒後
-}
-```
-
-#### 3-4. brewing 注文の完了時刻
-
-`brewing` は 3-1 でドリッパーの累積時刻に積んだので、**積み終わった直後のドリッパー時刻 + `T_serve`** をその注文の完了予定として記録する。3-1 のループ内で併記する実装にするのが簡単：
-
-```ts
-for (const o of activeOrders.filter((x) => x.status === "brewing")) {
-  drippers.sort((a, b) => a - b);
-  drippers[0] += duration(o);
-  finishAt.set(o.id, drippers[0] + T_serve);
 }
 ```
 
