@@ -31,6 +31,7 @@ export function MenuItemCard({ name, price, description, quantity, onAdd, onRemo
               className="size-8 rounded-full"
               onClick={onRemove}
               disabled={quantity === 0}
+              aria-label={`${name} を1つ減らす`}
             >
               <Minus className="size-3" />
             </Button>
@@ -41,6 +42,7 @@ export function MenuItemCard({ name, price, description, quantity, onAdd, onRemo
               size="icon"
               className="size-8 rounded-full"
               onClick={onAdd}
+              aria-label={`${name} を1つ増やす`}
             >
               <Plus className="size-3" />
             </Button>

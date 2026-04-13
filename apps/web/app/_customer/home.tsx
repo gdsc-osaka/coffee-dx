@@ -1,15 +1,14 @@
-"use client";
-
 import { CheckCircle, Coffee, ShoppingBag } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Form, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
-import { getAvailableMenuItems } from "~/features/menu/queries";
+import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
 import { createOrder } from "~/features/order/actions";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
+import { cartJsonSchema } from "./schemas";
 
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
@@ -20,25 +19,43 @@ export async function loader({ context }: Route.LoaderArgs) {
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
   const cartJson = formData.get("cartJson");
-  if (!cartJson || typeof cartJson !== "string") {
-    return { error: "カートが空です" };
+
+  const parseResult = cartJsonSchema.safeParse(cartJson);
+  if (!parseResult.success) {
+    return { error: parseResult.error.issues[0]?.message ?? "カートデータが不正です" };
   }
 
-  let cartItems: { menuItemId: string; name: string; price: number; quantity: number }[];
-  try {
-    cartItems = JSON.parse(cartJson);
-  } catch {
-    return { error: "カートデータが不正です" };
-  }
-
-  if (!Array.isArray(cartItems) || cartItems.length === 0) {
-    return { error: "カートが空です" };
-  }
-
+  const requestedItems = parseResult.data;
   const db = createDb(context.cloudflare.env.DB);
-  const { orderNumber } = await createOrder(db, context.cloudflare.env, cartItems);
 
-  return { orderNumber };
+  // menuItemId の存在確認と name/price をサーバー側で正規化
+  const menuItemIds = requestedItems.map((item) => item.menuItemId);
+  const menuItemRecords = await getMenuItemsByIds(db, menuItemIds);
+  const menuItemMap = new Map(menuItemRecords.map((m) => [m.id, m]));
+
+  const cartItems = requestedItems
+    .map((item) => {
+      const menuItem = menuItemMap.get(item.menuItemId);
+      if (!menuItem) return null;
+      return {
+        menuItemId: item.menuItemId,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: item.quantity,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  if (cartItems.length === 0) {
+    return { error: "有効なメニューが選択されていません" };
+  }
+
+  try {
+    const { orderNumber } = await createOrder(db, context.cloudflare.env, cartItems);
+    return { orderNumber };
+  } catch {
+    return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
+  }
 }
 
 type CartItem = {
