@@ -102,9 +102,7 @@ describe("createOrder", () => {
 
     const { orderId } = await createOrder(d1Db, mockEnv, cartItems);
 
-    expect(orderId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(orderId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   it("orders の created_at・updated_at が JST 形式で保存される", async () => {
