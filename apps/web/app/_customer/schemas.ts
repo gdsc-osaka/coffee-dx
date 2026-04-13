@@ -23,7 +23,10 @@ export const cartJsonSchema = z.string().transform((s, ctx) => {
   }
   const result = z.array(cartItemSchema).min(1, "カートが空です").safeParse(json.value);
   if (!result.success) {
-    ctx.addIssue({ code: "custom", message: result.error.issues[0]?.message ?? "カートデータが不正です" });
+    ctx.addIssue({
+      code: "custom",
+      message: result.error.issues[0]?.message ?? "カートデータが不正です",
+    });
     return z.NEVER;
   }
   return result.data;
