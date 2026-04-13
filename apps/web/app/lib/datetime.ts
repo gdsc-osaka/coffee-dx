@@ -7,8 +7,5 @@
  * DB に保存する側・読み出す側の双方で「この値は JST である」前提を共有すること。
  */
 export function getJstNowString(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000)
-    .toISOString()
-    .replace("T", " ")
-    .slice(0, 19);
+  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
 }
