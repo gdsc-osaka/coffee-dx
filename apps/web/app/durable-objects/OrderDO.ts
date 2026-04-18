@@ -107,9 +107,10 @@ export class OrderDurableObject implements DurableObject {
         const menuIdList = [...new Set(allItems.map((item) => item.menuItemId))];
         const menuRecords =
           menuIdList.length > 0
-            ? await db.select({ id: menuItems.id, name: menuItems.name }).from(menuItems).where(
-                inArray(menuItems.id, menuIdList),
-              )
+            ? await db
+                .select({ id: menuItems.id, name: menuItems.name })
+                .from(menuItems)
+                .where(inArray(menuItems.id, menuIdList))
             : [];
         const menuNameById = new Map(menuRecords.map((menu) => [menu.id, menu.name]));
 

@@ -164,7 +164,11 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
     [ordersById],
   );
   const activeOrders = useMemo(
-    () => allOrders.filter((order) => order.status === "pending" || order.status === "brewing" || order.status === "ready"),
+    () =>
+      allOrders.filter(
+        (order) =>
+          order.status === "pending" || order.status === "brewing" || order.status === "ready",
+      ),
     [allOrders],
   );
   const readyOrders = useMemo(
@@ -255,9 +259,7 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {actionData && !actionData.ok && (
-        <p className="text-sm text-red-600">{actionData.error}</p>
-      )}
+      {actionData && !actionData.ok && <p className="text-sm text-red-600">{actionData.error}</p>}
 
       {connectionError && <p className="text-sm text-red-600">{connectionError}</p>}
     </div>

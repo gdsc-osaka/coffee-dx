@@ -8,7 +8,9 @@ const { useActionDataMock, useNavigationMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("react-router", () => ({
-  Form: ({ children, ...props }: React.ComponentProps<"form">) => <form {...props}>{children}</form>,
+  Form: ({ children, ...props }: React.ComponentProps<"form">) => (
+    <form {...props}>{children}</form>
+  ),
   useActionData: useActionDataMock,
   useNavigation: useNavigationMock,
 }));
