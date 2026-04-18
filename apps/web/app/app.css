@@ -112,7 +112,3 @@ body {
     opacity: 0;
   }
 }
-
-.animate-brew-glow {
-  animation: brew-glow 2s ease-in-out infinite;
-}
