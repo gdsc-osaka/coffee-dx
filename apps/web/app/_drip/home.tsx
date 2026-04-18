@@ -130,7 +130,11 @@ export default function DripHome({ loaderData }: DripHomeProps) {
               const existing = prev[message.orderId];
               if (!existing) return prev;
 
-              if (message.status === "ready" || message.status === "completed" || message.status === "cancelled") {
+              if (
+                message.status === "ready" ||
+                message.status === "completed" ||
+                message.status === "cancelled"
+              ) {
                 const { [message.orderId]: _removed, ...rest } = prev;
                 return rest;
               }
@@ -274,9 +278,7 @@ export default function DripHome({ loaderData }: DripHomeProps) {
         </>
       )}
 
-      {actionData && !actionData.ok && (
-        <p className="text-sm text-red-600">{actionData.error}</p>
-      )}
+      {actionData && !actionData.ok && <p className="text-sm text-red-600">{actionData.error}</p>}
 
       {connectionError && <p className="text-sm text-red-600">{connectionError}</p>}
     </div>
