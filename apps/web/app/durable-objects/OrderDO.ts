@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { orderItems, orders } from "../../db/schema";
+import { menuItems, orderItems, orders } from "../../db/schema";
 import { createDb } from "../lib/db";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
@@ -9,6 +9,7 @@ type OrderItemData = {
   orderId: string;
   menuItemId: string;
   quantity: number;
+  name?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -103,12 +104,25 @@ export class OrderDurableObject implements DurableObject {
                 )
             : [];
 
-        const itemsByOrderId = new Map<string, typeof allItems>();
+        const menuIdList = [...new Set(allItems.map((item) => item.menuItemId))];
+        const menuRecords =
+          menuIdList.length > 0
+            ? await db
+                .select({ id: menuItems.id, name: menuItems.name })
+                .from(menuItems)
+                .where(inArray(menuItems.id, menuIdList))
+            : [];
+        const menuNameById = new Map(menuRecords.map((menu) => [menu.id, menu.name]));
+
+        const itemsByOrderId = new Map<string, OrderItemData[]>();
         for (const item of allItems) {
           if (!itemsByOrderId.has(item.orderId)) {
             itemsByOrderId.set(item.orderId, []);
           }
-          itemsByOrderId.get(item.orderId)!.push(item);
+          itemsByOrderId.get(item.orderId)!.push({
+            ...item,
+            name: menuNameById.get(item.menuItemId),
+          });
         }
 
         for (const order of activeOrders) {
