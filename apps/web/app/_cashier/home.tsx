@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, useActionData, useNavigation } from "react-router";
+import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
@@ -32,10 +30,8 @@ type ServerMessage =
   | { type: "ORDER_CREATED"; order: CashierOrder }
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus };
 
-export async function loader() {
-  return {
-    eventId: getBusinessDate(),
-  };
+export async function loader(_args: Route.LoaderArgs) {
+  return { eventId: getBusinessDate() };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -62,7 +58,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 }
 
-export default function CashierHome({ loaderData }: Route.ComponentProps) {
+export default function CashierHome({ loaderData }: { loaderData: { eventId: string } }) {
   const { eventId } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -97,9 +93,7 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
 
           if (message.type === "SNAPSHOT") {
             const next: Record<string, CashierOrder> = {};
-            for (const order of message.orders) {
-              next[order.id] = order;
-            }
+            for (const order of message.orders) next[order.id] = order;
             setOrdersById(next);
             setIsSnapshotLoaded(true);
             return;
@@ -150,12 +144,8 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
 
     return () => {
       unmounted = true;
-      if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (socket) {
-        socket.close();
-      }
+      if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
+      if (socket) socket.close();
     };
   }, [eventId]);
 
@@ -163,12 +153,8 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
     () => Object.values(ordersById).sort((a, b) => a.orderNumber - b.orderNumber),
     [ordersById],
   );
-  const activeOrders = useMemo(
-    () =>
-      allOrders.filter(
-        (order) =>
-          order.status === "pending" || order.status === "brewing" || order.status === "ready",
-      ),
+  const brewingOrders = useMemo(
+    () => allOrders.filter((order) => order.status === "brewing"),
     [allOrders],
   );
   const readyOrders = useMemo(
@@ -179,89 +165,124 @@ export default function CashierHome({ loaderData }: Route.ComponentProps) {
   const submittingOrderId =
     navigation.state === "submitting" ? navigation.formData?.get("orderId") : null;
 
+  const isEmpty = isSnapshotLoaded && brewingOrders.length === 0 && readyOrders.length === 0;
+
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">会計係 - 商品受け渡し</h1>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>接続:</span>
-          <Badge variant={isConnected ? "default" : "secondary"}>
-            {isConnected ? "オンライン" : "再接続中"}
-          </Badge>
-          <span>受け渡し待ち:</span>
-          <Badge variant="secondary">{readyOrders.length}</Badge>
+    <div className="min-h-screen bg-stone-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-stone-200 shrink-0">
+        <div className="px-12 py-3.5 flex items-center gap-3">
+          <div className="flex flex-col">
+            <h1 className="text-base font-bold text-stone-800 leading-tight">会計係</h1>
+            <p className="text-xs text-stone-400 mt-0.5">受け渡し管理</p>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-1.5 text-stone-400">
+              <span
+                className={
+                  isConnected
+                    ? "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
+                    : "w-1.5 h-1.5 rounded-full bg-stone-300"
+                }
+              />
+              {isConnected ? "接続中" : "再接続中"}
+            </span>
+          </div>
         </div>
       </header>
 
-      {!isSnapshotLoaded ? (
-        <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            注文スナップショットを取得中...
-          </CardContent>
-        </Card>
-      ) : activeOrders.length === 0 ? (
-        <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            進行中の注文はありません
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {activeOrders.map((order) => {
-            const isSubmittingThisOrder = submittingOrderId === order.id;
-            const canComplete = order.status === "ready";
-            const statusLabel =
-              order.status === "pending"
-                ? "作成待ち"
-                : order.status === "brewing"
-                  ? "ドリップ中"
-                  : "提供待ち";
+      {/* Content */}
+      <div className="flex-1 py-5 space-y-6">
+        {!isSnapshotLoaded ? (
+          <p className="px-6 text-sm text-stone-400 animate-pulse">読み込み中...</p>
+        ) : isEmpty ? (
+          <p className="px-6 text-sm text-stone-400">進行中の注文はありません</p>
+        ) : (
+          <>
+            {/* 提供待ち */}
+            <section className="px-6">
+              <div className="flex items-center gap-2 px-6 mb-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <h2 className="text-lg font-bold text-stone-700">提供待ち</h2>
+                <span className="text-xs bg-emerald-50 text-emerald-600 px-6 py-0.5 rounded-full font-medium">
+                  {readyOrders.length}
+                </span>
+              </div>
+              {readyOrders.length === 0 ? (
+                <p className="px-6 text-sm text-stone-400">提供待ちの注文はありません</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
+                  {readyOrders.map((order) => {
+                    const isSubmittingThisOrder = submittingOrderId === order.id;
+                    return (
+                      <OrderStatusCard
+                        key={order.id}
+                        status="ready"
+                        orderNumber={order.orderNumber}
+                        createdAt={order.createdAt}
+                        itemCount={order.items.length}
+                        items={order.items.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                          quantity: item.quantity,
+                        }))}
+                        action={{
+                          label: "完了",
+                          isSubmitting: isSubmittingThisOrder,
+                          fields: [
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                          ],
+                        }}
+                      />
+                    );
+                  })}
+                  <div className="w-6 shrink-0" />
+                </div>
+              )}
+            </section>
 
-            return (
-              <Card key={order.id}>
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between">
-                    <span className="text-xl">#{order.orderNumber}</span>
-                    <Badge variant={canComplete ? "default" : "secondary"}>{statusLabel}</Badge>
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground">{order.createdAt}</p>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <ul className="space-y-1">
-                    {order.items.map((item) => (
-                      <li key={item.id} className="flex justify-between text-sm">
-                        <span>{item.name ?? item.menuItemId}</span>
-                        <span className="text-muted-foreground">×{item.quantity}</span>
-                      </li>
-                    ))}
-                  </ul>
+            {/* ドリップ中 */}
+            <section className="px-6">
+              <div className="flex items-center gap-2 px-6 mb-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+                <h2 className="text-lg font-bold text-stone-700">ドリップ中</h2>
+                <span className="text-xs bg-orange-50 text-orange-600 px-6 py-0.5 rounded-full font-medium">
+                  {brewingOrders.length}
+                </span>
+              </div>
+              {brewingOrders.length === 0 ? (
+                <p className="px-6 text-sm text-stone-400">ドリップ中の注文はありません</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
+                  {brewingOrders.map((order) => (
+                    <OrderStatusCard
+                      key={order.id}
+                      status="brewing"
+                      orderNumber={order.orderNumber}
+                      createdAt={order.createdAt}
+                      itemCount={order.items.length}
+                      items={order.items.map((item) => ({
+                        id: item.id,
+                        name: item.name,
+                        quantity: item.quantity,
+                      }))}
+                    />
+                  ))}
+                  <div className="w-6 shrink-0" />
+                </div>
+              )}
+            </section>
+          </>
+        )}
 
-                  <Form method="post" className="space-y-2">
-                    <input type="hidden" name="orderId" value={order.id} />
-                    <input type="hidden" name="eventId" value={eventId} />
-                    <Button
-                      type="submit"
-                      className="w-full"
-                      disabled={isSubmittingThisOrder || !canComplete}
-                    >
-                      {isSubmittingThisOrder ? "更新中..." : "商品を渡して提供済みにする"}
-                    </Button>
-                    {!canComplete && (
-                      <p className="text-xs text-muted-foreground text-center">
-                        ドリップ完了後に提供できます
-                      </p>
-                    )}
-                  </Form>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {actionData && !actionData.ok && <p className="text-sm text-red-600">{actionData.error}</p>}
-
-      {connectionError && <p className="text-sm text-red-600">{connectionError}</p>}
+        {actionData && !actionData.ok && (
+          <p className="px-6 text-xs text-red-500">{actionData.error}</p>
+        )}
+        {connectionError && <p className="px-6 text-xs text-red-500">{connectionError}</p>}
+      </div>
     </div>
   );
 }

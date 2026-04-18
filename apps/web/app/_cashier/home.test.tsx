@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -102,7 +102,7 @@ describe("CashierHome", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   });
 
-  it("SNAPSHOT受信後に pending / brewing / ready を表示し、ready だけ提供ボタンを有効化する", async () => {
+  it("SNAPSHOT受信後に status セクションで表示し、ready だけ提供ボタンを有効化する", async () => {
     render(<CashierHome {...({ loaderData: { eventId: "2026-04-18" } } as any)} />);
 
     const ws = MockWebSocket.instances[0];
@@ -122,20 +122,22 @@ describe("CashierHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("#1")).toBeInTheDocument();
-      expect(screen.getByText("#2")).toBeInTheDocument();
-      expect(screen.getByText("#3")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "完了" })).toHaveLength(1);
     });
 
-    expect(screen.getByText("作成待ち")).toBeInTheDocument();
-    expect(screen.getByText("ドリップ中")).toBeInTheDocument();
-    expect(screen.getByText("提供待ち")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /作成待ち/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ドリップ中/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /提供待ち/ })).toBeInTheDocument();
 
-    const buttons = screen.getAllByRole("button", { name: "商品を渡して提供済みにする" });
-    expect(buttons).toHaveLength(3);
-    expect(buttons[0]).toBeDisabled();
-    expect(buttons[1]).toBeDisabled();
-    expect(buttons[2]).toBeEnabled();
+    const readySection = screen.getByRole("heading", { name: /提供待ち/ }).closest("section");
+    expect(readySection).toBeTruthy();
+    expect(
+      within(readySection as HTMLElement).queryByText("ドリップ完了後に提供できます"),
+    ).not.toBeInTheDocument();
+
+    const buttons = screen.getAllByRole("button", { name: "完了" });
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toBeEnabled();
   });
 
   it("ORDER_UPDATED で completed になった注文を一覧から取り除く", async () => {
@@ -151,7 +153,7 @@ describe("CashierHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("#10")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "完了" })).toHaveLength(1);
     });
 
     await act(async () => {
@@ -159,7 +161,7 @@ describe("CashierHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("#10")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
       expect(screen.getByText("進行中の注文はありません")).toBeInTheDocument();
     });
   });

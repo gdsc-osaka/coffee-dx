@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, useActionData, useNavigation } from "react-router";
+import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
-import { Badge } from "~/components/ui/badge";
-import { Button } from "~/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
@@ -66,18 +64,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 }
 
-type DripHomeProps = {
-  loaderData: {
-    eventId: string;
-  };
-};
-
-const statusLabel: Record<Exclude<OrderStatus, "ready" | "completed" | "cancelled">, string> = {
-  pending: "未着手",
-  brewing: "ドリップ中",
-};
-
-export default function DripHome({ loaderData }: DripHomeProps) {
+export default function DripHome({ loaderData }: { loaderData: { eventId: string } }) {
   const { eventId } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -169,12 +156,8 @@ export default function DripHome({ loaderData }: DripHomeProps) {
 
     return () => {
       unmounted = true;
-      if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (socket) {
-        socket.close();
-      }
+      if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
+      if (socket) socket.close();
     };
   }, [eventId]);
 
@@ -191,147 +174,144 @@ export default function DripHome({ loaderData }: DripHomeProps) {
     [allOrders],
   );
 
-  const submittingOrderId = (() => {
-    if (navigation.state !== "submitting") return null;
-    const value = navigation.formData?.get("orderId");
-    return typeof value === "string" ? value : null;
-  })();
-  const submittingIntent = (() => {
-    if (navigation.state !== "submitting") return null;
-    const value = navigation.formData?.get("intent");
-    return typeof value === "string" ? value : null;
-  })();
+  const submittingOrderId =
+    navigation.state === "submitting" ? navigation.formData?.get("orderId") : null;
+  const submittingIntent =
+    navigation.state === "submitting" ? navigation.formData?.get("intent") : null;
+
+  const isEmpty = isSnapshotLoaded && pendingOrders.length === 0 && brewingOrders.length === 0;
 
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold">ドリップ係 - 注文管理</h1>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>接続:</span>
-          <Badge variant={isConnected ? "default" : "secondary"}>
-            {isConnected ? "オンライン" : "再接続中"}
-          </Badge>
-          <span>未着手:</span>
-          <Badge variant="secondary">{pendingOrders.length}</Badge>
-          <span>ドリップ中:</span>
-          <Badge variant="default">{brewingOrders.length}</Badge>
+    <div className="min-h-screen bg-stone-50 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-stone-200 shrink-0">
+        <div className="px-12 py-3.5 flex items-center gap-3">
+          <div className="flex flex-col">
+            <h1 className="text-base font-bold text-stone-800 leading-tight">ドリップ係</h1>
+            <p className="text-xs text-stone-400 mt-0.5">注文管理</p>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-xs">
+            <span className="flex items-center gap-1.5 text-stone-400">
+              <span
+                className={
+                  isConnected
+                    ? "w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"
+                    : "w-1.5 h-1.5 rounded-full bg-stone-300"
+                }
+              />
+              {isConnected ? "接続中" : "再接続中"}
+            </span>
+          </div>
         </div>
       </header>
 
-      {!isSnapshotLoaded ? (
-        <Card>
-          <CardContent className="py-6 text-sm text-muted-foreground">
-            注文スナップショットを取得中...
-          </CardContent>
-        </Card>
-      ) : (
-        <>
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                未着手 <Badge variant="secondary">{pendingOrders.length}</Badge>
-              </h2>
-            </div>
-            {pendingOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">未着手の注文はありません</p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {pendingOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    submitLabel="作成開始"
-                    submitIntent="start"
-                    submittingOrderId={submittingOrderId}
-                    submittingIntent={submittingIntent}
-                    eventId={eventId}
-                  />
-                ))}
+      {/* Content */}
+      <div className="flex-1 py-5 space-y-6">
+        {!isSnapshotLoaded ? (
+          <p className="px-6 text-sm text-stone-400 animate-pulse">読み込み中...</p>
+        ) : isEmpty ? (
+          <p className="px-6 text-sm text-stone-400">進行中の注文はありません</p>
+        ) : (
+          <>
+            {/* 未着手 */}
+            <section className="px-6">
+              <div className="flex items-center gap-2 px-6 mb-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <h2 className="text-lg font-bold text-stone-700">未着手</h2>
+                <span className="text-xs bg-amber-50 text-amber-600 px-6 py-0.5 rounded-full font-medium">
+                  {pendingOrders.length}
+                </span>
               </div>
-            )}
-          </section>
+              {pendingOrders.length === 0 ? (
+                <p className="px-6 text-sm text-stone-400">未着手の注文はありません</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
+                  {pendingOrders.map((order) => {
+                    const isSubmittingThisOrder =
+                      submittingOrderId === order.id && submittingIntent === "start";
+                    return (
+                      <OrderStatusCard
+                        key={order.id}
+                        status="pending"
+                        orderNumber={order.orderNumber}
+                        createdAt={order.createdAt}
+                        itemCount={order.items.length}
+                        items={order.items.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                          quantity: item.quantity,
+                        }))}
+                        action={{
+                          label: "開始",
+                          isSubmitting: isSubmittingThisOrder,
+                          fields: [
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                            { name: "intent", value: "start" },
+                          ],
+                        }}
+                      />
+                    );
+                  })}
+                  <div className="w-6 shrink-0" />
+                </div>
+              )}
+            </section>
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                ドリップ中 <Badge variant="default">{brewingOrders.length}</Badge>
-              </h2>
-            </div>
-            {brewingOrders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">ドリップ中の注文はありません</p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {brewingOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    submitLabel="完成にする"
-                    submitIntent="complete-brew"
-                    submittingOrderId={submittingOrderId}
-                    submittingIntent={submittingIntent}
-                    eventId={eventId}
-                  />
-                ))}
+            {/* ドリップ中 */}
+            <section className="px-6">
+              <div className="flex items-center gap-2 px-6 mb-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+                <h2 className="text-lg font-bold text-stone-700">ドリップ中</h2>
+                <span className="text-xs bg-orange-50 text-orange-600 px-6 py-0.5 rounded-full font-medium">
+                  {brewingOrders.length}
+                </span>
               </div>
-            )}
-          </section>
-        </>
-      )}
+              {brewingOrders.length === 0 ? (
+                <p className="px-6 text-sm text-stone-400">ドリップ中の注文はありません</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
+                  {brewingOrders.map((order) => {
+                    const isSubmittingThisOrder =
+                      submittingOrderId === order.id && submittingIntent === "complete-brew";
+                    return (
+                      <OrderStatusCard
+                        key={order.id}
+                        status="brewing"
+                        orderNumber={order.orderNumber}
+                        createdAt={order.createdAt}
+                        itemCount={order.items.length}
+                        items={order.items.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                          quantity: item.quantity,
+                        }))}
+                        action={{
+                          label: "完成",
+                          isSubmitting: isSubmittingThisOrder,
+                          fields: [
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                            { name: "intent", value: "complete-brew" },
+                          ],
+                        }}
+                      />
+                    );
+                  })}
+                  <div className="w-6 shrink-0" />
+                </div>
+              )}
+            </section>
+          </>
+        )}
 
-      {actionData && !actionData.ok && <p className="text-sm text-red-600">{actionData.error}</p>}
-
-      {connectionError && <p className="text-sm text-red-600">{connectionError}</p>}
+        {actionData && !actionData.ok && (
+          <p className="px-6 text-xs text-red-500">{actionData.error}</p>
+        )}
+        {connectionError && <p className="px-6 text-xs text-red-500">{connectionError}</p>}
+      </div>
     </div>
-  );
-}
-
-function OrderCard({
-  order,
-  submitLabel,
-  submitIntent,
-  submittingOrderId,
-  submittingIntent,
-  eventId,
-}: {
-  order: DripOrder;
-  submitLabel: string;
-  submitIntent: "start" | "complete-brew";
-  submittingOrderId: string | null;
-  submittingIntent: string | null;
-  eventId: string;
-}) {
-  const isSubmittingThisOrder = submittingOrderId === order.id && submittingIntent === submitIntent;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center justify-between">
-          <span className="text-xl">#{order.orderNumber}</span>
-          <Badge variant={order.status === "brewing" ? "default" : "secondary"}>
-            {statusLabel[order.status as keyof typeof statusLabel] ?? order.status}
-          </Badge>
-        </CardTitle>
-        <p className="text-xs text-muted-foreground">{order.createdAt}</p>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <ul className="space-y-1">
-          {order.items.map((item) => (
-            <li key={item.id} className="flex justify-between text-sm">
-              <span>{item.name ?? item.menuItemId}</span>
-              <span className="text-muted-foreground">×{item.quantity}</span>
-            </li>
-          ))}
-        </ul>
-
-        <Form method="post" className="space-y-2">
-          <input type="hidden" name="orderId" value={order.id} />
-          <input type="hidden" name="eventId" value={eventId} />
-          <input type="hidden" name="intent" value={submitIntent} />
-          <Button type="submit" className="w-full" disabled={isSubmittingThisOrder}>
-            {isSubmittingThisOrder ? "更新中..." : submitLabel}
-          </Button>
-        </Form>
-      </CardContent>
-    </Card>
   );
 }
