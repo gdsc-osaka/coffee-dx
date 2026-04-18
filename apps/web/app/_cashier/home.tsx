@@ -153,14 +153,19 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
     () => Object.values(ordersById).sort((a, b) => a.orderNumber - b.orderNumber),
     [ordersById],
   );
-  const brewingOrders = useMemo(() => allOrders.filter((order) => order.status === "brewing"), [allOrders]);
-  const readyOrders = useMemo(() => allOrders.filter((order) => order.status === "ready"), [allOrders]);
+  const brewingOrders = useMemo(
+    () => allOrders.filter((order) => order.status === "brewing"),
+    [allOrders],
+  );
+  const readyOrders = useMemo(
+    () => allOrders.filter((order) => order.status === "ready"),
+    [allOrders],
+  );
 
   const submittingOrderId =
     navigation.state === "submitting" ? navigation.formData?.get("orderId") : null;
 
-  const isEmpty =
-    isSnapshotLoaded && brewingOrders.length === 0 && readyOrders.length === 0;
+  const isEmpty = isSnapshotLoaded && brewingOrders.length === 0 && readyOrders.length === 0;
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -206,7 +211,8 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
               {readyOrders.length === 0 ? (
                 <p className="px-6 text-sm text-stone-400">提供待ちの注文はありません</p>
               ) : (
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6"><div className="w-6 shrink-0" />
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
                   {readyOrders.map((order) => {
                     const isSubmittingThisOrder = submittingOrderId === order.id;
                     return (
@@ -249,7 +255,8 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
               {brewingOrders.length === 0 ? (
                 <p className="px-6 text-sm text-stone-400">ドリップ中の注文はありません</p>
               ) : (
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6"><div className="w-6 shrink-0" />
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
                   {brewingOrders.map((order) => (
                     <OrderStatusCard
                       key={order.id}
@@ -274,9 +281,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
         {actionData && !actionData.ok && (
           <p className="px-6 text-xs text-red-500">{actionData.error}</p>
         )}
-        {connectionError && (
-          <p className="px-6 text-xs text-red-500">{connectionError}</p>
-        )}
+        {connectionError && <p className="px-6 text-xs text-red-500">{connectionError}</p>}
       </div>
     </div>
   );

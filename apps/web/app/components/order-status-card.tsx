@@ -87,9 +87,7 @@ export function OrderStatusCard({
               </div>
               <p className="text-xs text-stone-400 mt-1">{itemCount}点</p>
             </div>
-            <div
-              className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", cfg.dotClass)}
-            />
+            <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", cfg.dotClass)} />
           </div>
           <div className="h-px mt-3 bg-stone-100" />
         </CardHeader>
@@ -110,19 +108,11 @@ export function OrderStatusCard({
           {action && (
             <Form method="post">
               {action.fields.map((field) => (
-                <input
-                  key={field.name}
-                  type="hidden"
-                  name={field.name}
-                  value={field.value}
-                />
+                <input key={field.name} type="hidden" name={field.name} value={field.value} />
               ))}
               <Button
                 type="submit"
-                className={cn(
-                  "h-16 w-full text-base font-bold rounded-xl",
-                  cfg.buttonClass,
-                )}
+                className={cn("h-16 w-full text-base font-bold rounded-xl", cfg.buttonClass)}
                 disabled={action.isSubmitting}
               >
                 {action.isSubmitting ? "更新中..." : action.label}

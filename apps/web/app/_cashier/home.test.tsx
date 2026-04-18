@@ -131,7 +131,9 @@ describe("CashierHome", () => {
 
     const readySection = screen.getByRole("heading", { name: /提供待ち/ }).closest("section");
     expect(readySection).toBeTruthy();
-    expect(within(readySection as HTMLElement).queryByText("ドリップ完了後に提供できます")).not.toBeInTheDocument();
+    expect(
+      within(readySection as HTMLElement).queryByText("ドリップ完了後に提供できます"),
+    ).not.toBeInTheDocument();
 
     const buttons = screen.getAllByRole("button", { name: "完了" });
     expect(buttons).toHaveLength(1);

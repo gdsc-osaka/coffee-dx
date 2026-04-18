@@ -179,8 +179,7 @@ export default function DripHome({ loaderData }: { loaderData: { eventId: string
   const submittingIntent =
     navigation.state === "submitting" ? navigation.formData?.get("intent") : null;
 
-  const isEmpty =
-    isSnapshotLoaded && pendingOrders.length === 0 && brewingOrders.length === 0;
+  const isEmpty = isSnapshotLoaded && pendingOrders.length === 0 && brewingOrders.length === 0;
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -226,7 +225,8 @@ export default function DripHome({ loaderData }: { loaderData: { eventId: string
               {pendingOrders.length === 0 ? (
                 <p className="px-6 text-sm text-stone-400">未着手の注文はありません</p>
               ) : (
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6"><div className="w-6 shrink-0" />
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
                   {pendingOrders.map((order) => {
                     const isSubmittingThisOrder =
                       submittingOrderId === order.id && submittingIntent === "start";
@@ -271,7 +271,8 @@ export default function DripHome({ loaderData }: { loaderData: { eventId: string
               {brewingOrders.length === 0 ? (
                 <p className="px-6 text-sm text-stone-400">ドリップ中の注文はありません</p>
               ) : (
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6"><div className="w-6 shrink-0" />
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
                   {brewingOrders.map((order) => {
                     const isSubmittingThisOrder =
                       submittingOrderId === order.id && submittingIntent === "complete-brew";
@@ -309,9 +310,7 @@ export default function DripHome({ loaderData }: { loaderData: { eventId: string
         {actionData && !actionData.ok && (
           <p className="px-6 text-xs text-red-500">{actionData.error}</p>
         )}
-        {connectionError && (
-          <p className="px-6 text-xs text-red-500">{connectionError}</p>
-        )}
+        {connectionError && <p className="px-6 text-xs text-red-500">{connectionError}</p>}
       </div>
     </div>
   );
