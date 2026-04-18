@@ -130,7 +130,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto px-4 py-5 space-y-2 pb-32">
+      <main className="max-w-lg mx-auto px-4 py-5 space-y-3 pb-36">
         {items.map((item) => (
           <MenuItemCard
             key={item.id}
@@ -157,22 +157,82 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
           <div className="max-w-lg mx-auto">
             <Button
               type="button"
-              className="w-full bg-stone-900 hover:bg-stone-800 text-white h-14 text-base rounded-xl"
+              className="w-full bg-stone-900 hover:bg-stone-800 text-white h-16 text-lg rounded-2xl"
               onClick={() => setPhase("confirm")}
             >
               <ShoppingBag className="size-5 mr-2" />
               <span className="flex-1 text-left">注文を確認する</span>
-              <span className="font-bold">¥{totalPrice.toLocaleString()}</span>
+              <span className="font-black text-xl">¥{totalPrice.toLocaleString()}</span>
             </Button>
           </div>
         </div>
       )}
 
-      {/* 注文確認・完了ダイアログ */}
-      <Dialog open={phase !== "menu"} onOpenChange={(open) => !open && handleCloseDialog()}>
+      {/* 会計確認フェーズ — フルスクリーン二分割 */}
+      {phase === "confirm" && (
+        <div className="fixed inset-0 flex flex-col">
+          {/* 上部: スタッフ向け（180°回転してカウンター越しに読める） */}
+          <div className="shrink-0 flex flex-col rotate-180 bg-stone-900 p-3 gap-2">
+            <p className="text-stone-500 text-xs text-center tracking-widest uppercase">Cashier</p>
+            <div className="space-y-1">
+              {cart.map((item) => (
+                <div key={item.menuItemId} className="flex justify-between text-sm text-white">
+                  <span>
+                    {item.name} × {item.quantity}
+                  </span>
+                  <span className="tabular-nums">
+                    ¥{(item.price * item.quantity).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+              <div className="border-t border-stone-700 mt-1.5 pt-1.5 flex justify-between items-baseline">
+                <span className="text-stone-400 text-sm">合計</span>
+                <span className="text-6xl font-black text-white tabular-nums">
+                  ¥{totalPrice.toLocaleString()}
+                </span>
+              </div>
+            </div>
+            {actionData && "error" in actionData && (
+              <p className="text-sm text-red-400 text-center">{actionData.error}</p>
+            )}
+            <Form method="post">
+              <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
+              <Button
+                type="submit"
+                className="w-full h-14 text-2xl font-black bg-emerald-600 hover:bg-emerald-500 text-white border-0 rounded-2xl"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? "処理中..." : "会計を確定する"}
+              </Button>
+            </Form>
+            <button
+              type="button"
+              className="text-stone-600 text-sm text-center py-0.5"
+              onClick={() => setPhase("menu")}
+            >
+              キャンセル
+            </button>
+          </div>
+
+          {/* 区切り線 */}
+          <div className="h-1 bg-stone-300 shrink-0" />
+
+          {/* 下部: お客様向け（正位）*/}
+          <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
+            <p className="text-2xl font-bold text-stone-700 tracking-wide">
+              現金でお支払いください
+            </p>
+            <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
+              ¥{totalPrice.toLocaleString()}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* 注文完了ダイアログ */}
+      <Dialog open={phase === "complete"} onOpenChange={(open) => !open && handleCloseDialog()}>
         <DialogContent showCloseButton={!isSubmitting}>
-          {phase === "complete" && completedOrderNumber !== null ? (
-            /* 注文完了フェーズ */
+          {completedOrderNumber !== null && (
             <div className="flex flex-col items-center gap-6 py-4">
               <div className="flex flex-col items-center gap-3">
                 <CheckCircle className="size-14 text-green-600" />
@@ -196,52 +256,6 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                 閉じる
               </Button>
             </div>
-          ) : (
-            /* 注文確認フェーズ */
-            <>
-              <DialogHeader>
-                <DialogTitle>注文内容の確認</DialogTitle>
-              </DialogHeader>
-
-              {/* 明細 */}
-              <div className="space-y-2 py-2">
-                {cart.map((item) => (
-                  <div key={item.menuItemId} className="flex justify-between text-sm">
-                    <span className="text-stone-700">
-                      {item.name} × {item.quantity}
-                    </span>
-                    <span className="font-semibold text-stone-900">
-                      ¥{(item.price * item.quantity).toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-                <div className="border-t border-stone-200 pt-3 flex justify-between">
-                  <span className="font-semibold text-stone-900">合計</span>
-                  <span className="text-xl font-black text-stone-900">
-                    ¥{totalPrice.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              <p className="text-sm text-stone-500 text-center bg-stone-50 rounded-lg py-3 px-4">
-                現金でお支払いください
-              </p>
-
-              {actionData && "error" in actionData && (
-                <p className="text-sm text-red-600 text-center">{actionData.error}</p>
-              )}
-
-              <Form method="post">
-                <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
-                <Button
-                  type="submit"
-                  className="w-full bg-stone-900 hover:bg-stone-800 text-white h-12 rounded-xl"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "処理中..." : "会計を確定する"}
-                </Button>
-              </Form>
-            </>
           )}
         </DialogContent>
       </Dialog>

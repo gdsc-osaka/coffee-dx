@@ -13,40 +13,40 @@ type Props = {
 
 export function MenuItemCard({ name, price, description, quantity, onAdd, onRemove }: Props) {
   return (
-    <Card className="border-0 rounded-xl bg-white shadow-sm">
-      <CardContent className="flex items-center justify-between gap-4 py-4 px-5">
+    <Card className="border-0 rounded-2xl bg-white shadow-sm">
+      <CardContent className="flex items-center justify-between gap-4 py-6 px-6">
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-stone-900">{name}</p>
-          {description && (
-            <p className="text-sm text-stone-500 mt-0.5 leading-snug">{description}</p>
-          )}
+          <p className="text-lg font-bold text-stone-900">{name}</p>
+          {description && <p className="text-sm text-stone-500 mt-1 leading-snug">{description}</p>}
+          <p className="text-2xl font-black text-stone-900 mt-2 tabular-nums">
+            ¥{price.toLocaleString()}
+          </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span className="text-lg font-bold text-stone-900">¥{price.toLocaleString()}</span>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 rounded-full"
-              onClick={onRemove}
-              disabled={quantity === 0}
-              aria-label={`${name} を1つ減らす`}
-            >
-              <Minus className="size-3" />
-            </Button>
-            <span className="w-5 text-center font-semibold text-stone-900">{quantity}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 rounded-full"
-              onClick={onAdd}
-              aria-label={`${name} を1つ増やす`}
-            >
-              <Plus className="size-3" />
-            </Button>
-          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-12 rounded-full border-stone-300"
+            onClick={onRemove}
+            disabled={quantity === 0}
+            aria-label={`${name} を1つ減らす`}
+          >
+            <Minus className="size-5" />
+          </Button>
+          <span className="w-8 text-center text-xl font-black text-stone-900 tabular-nums">
+            {quantity}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="size-12 rounded-full border-stone-300"
+            onClick={onAdd}
+            aria-label={`${name} を1つ増やす`}
+          >
+            <Plus className="size-5" />
+          </Button>
         </div>
       </CardContent>
     </Card>
