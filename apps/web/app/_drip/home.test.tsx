@@ -128,11 +128,11 @@ describe("DripHome", () => {
     expect(screen.getByRole("heading", { name: /未着手/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /ドリップ中/ })).toBeInTheDocument();
 
-    const startButtons = screen.getAllByRole("button", { name: "作成開始" });
+    const startButtons = screen.getAllByRole("button", { name: "開始" });
     expect(startButtons).toHaveLength(1);
     expect(startButtons[0]).toBeEnabled();
 
-    const completeButtons = screen.getAllByRole("button", { name: "完成にする" });
+    const completeButtons = screen.getAllByRole("button", { name: "完成" });
     expect(completeButtons).toHaveLength(1);
     expect(completeButtons[0]).toBeEnabled();
   });
@@ -159,8 +159,7 @@ describe("DripHome", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("#10")).not.toBeInTheDocument();
-      expect(screen.getByText("未着手の注文はありません")).toBeInTheDocument();
-      expect(screen.getByText("ドリップ中の注文はありません")).toBeInTheDocument();
+      expect(screen.getByText("進行中の注文はありません")).toBeInTheDocument();
     });
   });
 });
