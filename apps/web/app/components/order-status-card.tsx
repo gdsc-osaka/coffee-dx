@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Form } from "react-router";
 
 import { Button } from "~/components/ui/button";
@@ -60,6 +61,12 @@ export function OrderStatusCard({
   className,
 }: OrderStatusCardProps) {
   const cfg = statusConfig[status];
+
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   return (
     <div
