@@ -219,7 +219,9 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
           {/* 下部: お客様向け（正位）*/}
           <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
-            <p className="text-2xl font-bold text-stone-700 tracking-wide">現金でお支払いください</p>
+            <p className="text-2xl font-bold text-stone-700 tracking-wide">
+              現金でお支払いください
+            </p>
             <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
               ¥{totalPrice.toLocaleString()}
             </p>
