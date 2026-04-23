@@ -1,4 +1,4 @@
-import { CheckCircle, Coffee, ShoppingBag } from "lucide-react";
+import { CheckCircle, ShoppingBag } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Form, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
@@ -120,9 +120,9 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="min-h-screen bg-stone-100">
-      <header className="bg-stone-900 px-4 py-8">
+      <header className="bg-stone-900 px-4 py-4">
         <div className="flex items-center gap-3">
-          <Coffee className="size-6 text-white" />
+          <img src="/coffee-dx.svg" alt="Osaka Univ. Coffee" className="size-12 object-contain" />
           <div>
             <h1 className="text-xl font-bold text-white tracking-wide">コーヒー愛好会</h1>
             <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Today's Menu</p>
@@ -145,7 +145,6 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
         {items.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-20 text-stone-400">
-            <Coffee className="size-8" />
             <p className="text-sm">現在提供できるメニューがありません</p>
           </div>
         )}
