@@ -13,6 +13,9 @@ importers:
       '@react-router/cloudflare':
         specifier: 7.13.2
         version: 7.13.2(@cloudflare/workers-types@4.20260402.1)(react-router@7.13.2(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(typescript@5.9.3)
+      bdfparser:
+        specifier: ^2.2.5
+        version: 2.2.5
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -28,6 +31,9 @@ importers:
       lucide-react:
         specifier: ^0.511.0
         version: 0.511.0(react@19.2.4)
+      lx-printer:
+        specifier: ^0.2.0
+        version: 0.2.0
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -2606,6 +2612,10 @@ packages:
     resolution: {integrity: sha512-NF+epuEdnUYVlGuhaxbbq+dvJttwLnGY+YixlXlME5KpQ5W3CnXA5cVTneY3SPbPDRkcjMbifrwmFYcClgOZeg==}
     engines: {node: '>= 0.8'}
 
+  bdfparser@2.2.5:
+    resolution: {integrity: sha512-XztB/5cPhbZlg9SI5vfA0glt9KUu5y5EXY8MQx6/5pFK3XYElSuZ3HvtMbeET55IJTl4E3oAHbitjjSgd9X2fA==}
+    engines: {node: '>= 12.0'}
+
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
 
@@ -3193,6 +3203,9 @@ packages:
     resolution: {integrity: sha512-VK5a2ydJ7xm8GvBeKLS9mu1pVK6ucef9780JVUjw6bAjJL/QXnd4Y0p7SPeOUMC27YhzNCZvm5d/QX0Tp3rc0w==}
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
+  lx-printer@0.2.0:
+    resolution: {integrity: sha512-Fv25geBcMDFBBlnqlyDsUdnf/sAa66P+wZul9SXPFc6O/E4SQqI9ObvoQHCiYW0FTZs6LkDWvtlMBZtkeCcJ7g==}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -6065,6 +6078,8 @@ snapshots:
       safe-buffer: 5.1.2
     optional: true
 
+  bdfparser@2.2.5: {}
+
   blake3-wasm@2.1.5: {}
 
   body-parser@1.20.4:
@@ -6665,6 +6680,8 @@ snapshots:
   lucide-react@0.511.0(react@19.2.4):
     dependencies:
       react: 19.2.4
+
+  lx-printer@0.2.0: {}
 
   lz-string@1.5.0: {}
 

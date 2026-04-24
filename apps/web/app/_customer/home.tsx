@@ -1,6 +1,6 @@
-import { CheckCircle, Coffee, ShoppingBag } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Form, useActionData, useNavigation } from "react-router";
+import { CheckCircle, Coffee, ShoppingBag, Printer } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Form, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
 import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
@@ -9,6 +9,12 @@ import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
 import { cartJsonSchema } from "./schemas";
+import { printerClient } from "~/features/printer/printer-client";
+import { receiptGenerator } from "~/features/printer/receipt-generator";
+import { CashierHeader } from "./components/CashierHeader";
+import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
+import type { ConnectionStatus } from "~/features/printer/printer-client";
+import type { PrinterStatus } from "lx-printer/lx-d02";
 
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
@@ -71,20 +77,95 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const { items } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const submit = useSubmit();
   const isSubmitting = navigation.state === "submitting";
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [phase, setPhase] = useState<Phase>("menu");
   const [completedOrderNumber, setCompletedOrderNumber] = useState<number | null>(null);
+  const [printerStatus, setPrinterStatus] = useState<ConnectionStatus>("disconnected");
+  const [printerStatusData, setPrinterStatusData] = useState<PrinterStatus | null>(null);
+  const [optimisticDensity, setOptimisticDensity] = useState<number | null>(null);
+  const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
+  const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(true);
+  const processedActionData = useRef<any>(null);
+
+  // 初回マウント時にフォントなどをバックグラウンドでプリロードしておく
+  useEffect(() => {
+    receiptGenerator.init().catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    printerClient.onStatusUpdate((status, data) => {
+      setPrinterStatus(status);
+      setPrinterStatusData(data);
+      // 実機からのステータス報告と一致したらオプティミスティック表示を解除
+      if (data && data.density === optimisticDensity) {
+        setOptimisticDensity(null);
+      }
+    });
+  }, [optimisticDensity]);
 
   // action完了を検知してフェーズを進める
   useEffect(() => {
     if (!actionData) return;
+    if (processedActionData.current === actionData) return;
+
     if ("orderNumber" in actionData && actionData.orderNumber !== undefined) {
+      processedActionData.current = actionData;
       setCompletedOrderNumber(actionData.orderNumber);
       setPhase("complete");
+
+      // 自動印刷の実行
+      const printAuto = async () => {
+        if (!isAutoPrintEnabled) return;
+        try {
+          const canvas = await receiptGenerator.generate({
+            orderNumber: actionData.orderNumber!,
+            items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
+            timestamp: new Date(),
+          });
+          await printerClient.print(canvas);
+        } catch (e) {
+          console.error("Auto print failed:", e);
+        }
+      };
+      printAuto();
     }
-  }, [actionData]);
+  }, [actionData, cart, isAutoPrintEnabled]);
+
+  const handlePrintSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+
+    // プリンターが未接続の場合のみ接続を試みる (自動印刷が有効な場合のみ)
+    if (isAutoPrintEnabled && printerStatus !== "connected") {
+      try {
+        await printerClient.connect();
+      } catch (e) {
+        console.error("Printer connection failed:", e);
+      }
+    }
+
+    submit(form);
+  };
+
+  const handleReprint = async () => {
+    if (completedOrderNumber === null) return;
+    if (!window.confirm("レシートを再印刷しますか？")) return;
+
+    try {
+      const canvas = await receiptGenerator.generate({
+        orderNumber: completedOrderNumber,
+        items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
+        timestamp: new Date(),
+      });
+      await printerClient.print(canvas);
+    } catch (e) {
+      alert("再印刷に失敗しました。プリンターの状態を確認してください。");
+      console.error("Reprint failed:", e);
+    }
+  };
 
   const getQuantity = (menuItemId: string) =>
     cart.find((c) => c.menuItemId === menuItemId)?.quantity ?? 0;
@@ -119,7 +200,14 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   };
 
   return (
-    <div className="min-h-screen bg-stone-100">
+    <div className="min-h-screen bg-stone-100 flex flex-col">
+      {/* スタッフ向けヘッダー (常に表示・180°回転) */}
+      <CashierHeader
+        printerStatus={printerStatus}
+        printerStatusData={printerStatusData}
+        onOpenSettings={() => setIsPrinterSettingsOpen(true)}
+      />
+
       <header className="bg-stone-900 px-4 py-8">
         <div className="flex items-center gap-3">
           <Coffee className="size-6 text-white" />
@@ -195,7 +283,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             {actionData && "error" in actionData && (
               <p className="text-sm text-red-400 text-center">{actionData.error}</p>
             )}
-            <Form method="post">
+            <Form method="post" onSubmit={handlePrintSubmit}>
               <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
               <Button
                 type="submit"
@@ -205,6 +293,11 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                 {isSubmitting ? "処理中..." : "会計を確定する"}
               </Button>
             </Form>
+            {isAutoPrintEnabled && (
+              <p className="text-[10px] text-stone-600 text-center">
+                ※プリンター未接続時は会計確定時に接続ダイアログが表示されます
+              </p>
+            )}
             <button
               type="button"
               className="text-stone-600 text-sm text-center py-0.5"
@@ -247,18 +340,39 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                 </p>
               </div>
               <p className="text-stone-500 text-sm text-center">ドリップ完了後にお呼びします</p>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={handleCloseDialog}
-              >
-                閉じる
-              </Button>
+              <div className="flex flex-col w-full gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full h-12 text-stone-600"
+                  onClick={handleReprint}
+                >
+                  <Printer className="size-4 mr-2" />
+                  再印刷
+                </Button>
+                <Button
+                  type="button"
+                  className="w-full h-12 bg-stone-900 text-white"
+                  onClick={handleCloseDialog}
+                >
+                  閉じる
+                </Button>
+              </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      <PrinterSettingsDialog
+        open={isPrinterSettingsOpen}
+        onOpenChange={setIsPrinterSettingsOpen}
+        printerStatus={printerStatus}
+        printerStatusData={printerStatusData}
+        optimisticDensity={optimisticDensity}
+        setOptimisticDensity={setOptimisticDensity}
+        isAutoPrintEnabled={isAutoPrintEnabled}
+        setIsAutoPrintEnabled={setIsAutoPrintEnabled}
+      />
     </div>
   );
 }
