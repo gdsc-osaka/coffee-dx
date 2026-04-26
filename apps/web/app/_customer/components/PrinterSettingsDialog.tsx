@@ -94,7 +94,7 @@ export function PrinterSettingsDialog({
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">印刷濃度 (1-7)</p>
               <span className="text-emerald-500 font-bold">
-                {optimisticDensity ?? printerStatusData?.density ?? 5}
+                {optimisticDensity ?? printerStatusData?.density ?? 4}
               </span>
             </div>
             <div className="flex gap-2">
@@ -111,7 +111,7 @@ export function PrinterSettingsDialog({
                   }}
                   disabled={printerStatus !== "connected"}
                   className={`flex-1 h-10 rounded-lg border transition-all ${
-                    (optimisticDensity ?? printerStatusData?.density ?? 5) === d
+                    (optimisticDensity ?? printerStatusData?.density ?? 4) === d
                       ? "bg-emerald-600 border-emerald-500 text-white font-bold"
                       : "bg-stone-800 border-stone-700 text-stone-400 hover:border-stone-500"
                   } ${printerStatus !== "connected" ? "opacity-30 cursor-not-allowed" : ""}`}
