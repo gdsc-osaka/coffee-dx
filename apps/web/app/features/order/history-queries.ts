@@ -75,11 +75,12 @@ export async function getRecentOrders(
   const itemsByOrderId = new Map<string, HistoryOrderItem[]>();
   for (const it of items) {
     const list = itemsByOrderId.get(it.orderId) ?? [];
-    // menu_items への FK は restrict のため、items 参照中のメニューは削除できない → name は必ず存在する
+    // 通常は FK restrict により name は必ず取得できるが、データ不整合や FK 無効化のような
+    // 例外時に UI/印字上で「商品名空欄」として識別不能になるのを防ぐためプレースホルダを置く。
     list.push({
       id: it.id,
       menuItemId: it.menuItemId,
-      name: menuNameById.get(it.menuItemId) ?? "",
+      name: menuNameById.get(it.menuItemId) ?? "(削除済み)",
       quantity: it.quantity,
     });
     itemsByOrderId.set(it.orderId, list);

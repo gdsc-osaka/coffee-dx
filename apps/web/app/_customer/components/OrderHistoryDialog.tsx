@@ -50,10 +50,21 @@ const statusColor: Record<OrderStatus, string> = {
   cancelled: "bg-red-500/10 text-red-400 border-red-500/30",
 };
 
+// 端末のローカル TZ に依存せず、注文日時を JST で表示する
+const jstFormatter = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "Asia/Tokyo",
+  month: "numeric",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 function formatJstShort(iso: string): string {
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const parts = jstFormatter.formatToParts(new Date(iso));
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("month")}/${get("day")} ${get("hour")}:${get("minute")}`;
 }
 
 export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogProps) {
