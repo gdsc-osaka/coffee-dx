@@ -155,6 +155,9 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     if (!window.confirm("レシートを再印刷しますか？")) return;
 
     try {
+      if (printerStatus !== "connected") {
+        await printerClient.connect();
+      }
       const canvas = await receiptGenerator.generate({
         orderNumber: completedOrderNumber,
         items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
