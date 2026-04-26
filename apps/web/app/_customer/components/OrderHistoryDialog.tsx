@@ -124,6 +124,8 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
   };
 
   const handleReprint = async (order: HistoryOrder) => {
+    // プリンタは1台で print() の同時呼び出しは保証されないため、in-flight 中は弾く
+    if (reprintingId !== null) return;
     setReprintingId(order.id);
     try {
       // プリンターが未接続なら接続を試みる（ユーザージェスチャー内なので OK）
@@ -193,7 +195,8 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
                 variant="outline"
                 size="sm"
                 className="w-full bg-transparent text-white border-stone-600 hover:bg-stone-700 hover:text-white h-9"
-                disabled={reprintingId === order.id}
+                // 別の注文の印刷中は全行を無効化（プリンタは1台で print() の同時実行は不可）
+                disabled={reprintingId !== null}
                 onClick={() => handleReprint(order)}
               >
                 {reprintingId === order.id ? (
