@@ -9,12 +9,12 @@ import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
 import { cartJsonSchema } from "./schemas";
-import { printerClient, PrinterBusyError } from "~/features/printer/printer-client";
+import { printerClient } from "~/features/printer/printer-client";
 import { receiptGenerator } from "~/features/printer/receipt-generator";
 import { CashierHeader } from "./components/CashierHeader";
 import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
-import type { PrinterStatus } from "lx-printer/lx-d02";
+import { isLXPrinterError, type PrinterStatus } from "lx-printer/lx-d02";
 
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
@@ -127,7 +127,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
           });
           await printerClient.print(canvas);
         } catch (e) {
-          if (e instanceof PrinterBusyError) {
+          if (isLXPrinterError(e) && e.code === "ALREADY_PRINTING") {
             // 別の印刷ジョブが進行中だったため二重印刷を回避。手動で再印刷可能なため致命的ではない
             console.warn("Auto print skipped: printer is already printing");
           } else {
@@ -167,7 +167,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       });
       await printerClient.print(canvas);
     } catch (e) {
-      if (e instanceof PrinterBusyError) {
+      if (isLXPrinterError(e) && e.code === "ALREADY_PRINTING") {
         alert("プリンターが印刷中です。完了後にもう一度お試しください。");
       } else {
         alert("再印刷に失敗しました。プリンターの状態を確認してください。");
