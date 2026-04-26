@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** JST 相当（SQLite の datetime 式）。設計どおり `datetime('now', '+9 hours')` */
 const jstNow = sql`(datetime('now', '+9 hours'))`;
@@ -28,6 +28,8 @@ export const orders = sqliteTable(
       "orders_status_check",
       sql`${t.status} IN ('pending','brewing','ready','completed','cancelled')`,
     ),
+    // 履歴ダイアログの cursor pagination で createdAt DESC 順にスキャンするため
+    index("orders_created_at_idx").on(t.createdAt),
   ],
 );
 

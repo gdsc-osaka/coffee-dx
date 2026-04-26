@@ -12,6 +12,7 @@ import { cartJsonSchema } from "./schemas";
 import { printerClient } from "~/features/printer/printer-client";
 import { receiptGenerator } from "~/features/printer/receipt-generator";
 import { CashierHeader } from "./components/CashierHeader";
+import { OrderHistoryDialog } from "./components/OrderHistoryDialog";
 import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import { isLXPrinterError, type PrinterStatus } from "lx-printer/lx-d02";
@@ -57,8 +58,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 
   try {
-    const { orderNumber } = await createOrder(db, context.cloudflare.env, cartItems);
-    return { orderNumber };
+    const { orderNumber, createdAt } = await createOrder(db, context.cloudflare.env, cartItems);
+    // Date は JSON シリアライズで ISO 文字列に変換されるので、クライアントで new Date() で復元する
+    return { orderNumber, createdAt: createdAt.toISOString() };
   } catch {
     return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
   }
@@ -83,10 +85,13 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [phase, setPhase] = useState<Phase>("menu");
   const [completedOrderNumber, setCompletedOrderNumber] = useState<number | null>(null);
+  const [completedOrderCreatedAt, setCompletedOrderCreatedAt] = useState<Date | null>(null);
+  const [completedOrderItems, setCompletedOrderItems] = useState<CartItem[]>([]);
   const [printerStatus, setPrinterStatus] = useState<ConnectionStatus>("disconnected");
   const [printerStatusData, setPrinterStatusData] = useState<PrinterStatus | null>(null);
   const [optimisticDensity, setOptimisticDensity] = useState<number | null>(null);
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(true);
   const processedActionData = useRef<any>(null);
 
@@ -113,7 +118,12 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
     if ("orderNumber" in actionData && actionData.orderNumber !== undefined) {
       processedActionData.current = actionData;
+      const createdAt = new Date(actionData.createdAt);
+      // 再印刷時に必要なので注文確定時のスナップショットを保持する（cart は閉じる時にクリアされるため）
+      const snapshotItems = cart.map((c) => ({ ...c }));
       setCompletedOrderNumber(actionData.orderNumber);
+      setCompletedOrderCreatedAt(createdAt);
+      setCompletedOrderItems(snapshotItems);
       setPhase("complete");
 
       // 自動印刷の実行
@@ -122,8 +132,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         try {
           const canvas = await receiptGenerator.generate({
             orderNumber: actionData.orderNumber!,
-            items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
-            timestamp: new Date(),
+            items: snapshotItems.map((c) => ({ name: c.name, quantity: c.quantity })),
+            timestamp: createdAt,
           });
           await printerClient.print(canvas);
         } catch (e) {
@@ -156,7 +166,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   };
 
   const handleReprint = async () => {
-    if (completedOrderNumber === null) return;
+    if (completedOrderNumber === null || completedOrderCreatedAt === null) return;
     if (!window.confirm("レシートを再印刷しますか？")) return;
 
     try {
@@ -165,8 +175,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       }
       const canvas = await receiptGenerator.generate({
         orderNumber: completedOrderNumber,
-        items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
-        timestamp: new Date(),
+        items: completedOrderItems.map((c) => ({ name: c.name, quantity: c.quantity })),
+        timestamp: completedOrderCreatedAt,
       });
       await printerClient.print(canvas);
     } catch (e) {
@@ -207,6 +217,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     if (phase === "complete") {
       setCart([]);
       setCompletedOrderNumber(null);
+      setCompletedOrderCreatedAt(null);
+      setCompletedOrderItems([]);
     }
     setPhase("menu");
   };
@@ -218,6 +230,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         printerStatus={printerStatus}
         printerStatusData={printerStatusData}
         onOpenSettings={() => setIsPrinterSettingsOpen(true)}
+        onOpenHistory={() => setIsHistoryOpen(true)}
       />
 
       <header className="bg-stone-900 px-4 py-8">
@@ -390,6 +403,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         isAutoPrintEnabled={isAutoPrintEnabled}
         setIsAutoPrintEnabled={setIsAutoPrintEnabled}
       />
+
+      <OrderHistoryDialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen} />
     </div>
   );
 }
