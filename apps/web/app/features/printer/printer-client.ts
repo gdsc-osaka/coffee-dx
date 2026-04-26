@@ -12,6 +12,7 @@ export class PrinterClient {
   private _printer: LXD02Printer | null = null;
   private _status: ConnectionStatus = "disconnected";
   private _printerStatus: PrinterStatus | null = null;
+  private _connectingPromise: Promise<void> | null = null;
   private _onStatusChange:
     | ((status: ConnectionStatus, printerStatus: PrinterStatus | null) => void)
     | null = null;
@@ -43,28 +44,35 @@ export class PrinterClient {
    * プリンターに接続する
    */
   async connect(): Promise<void> {
-    if (this._status === "connecting") return;
+    // 接続中の呼び出しは同じ Promise を共有する。早期 return すると
+    // 呼び出し側が「接続済み」と誤認して未接続状態で print() を呼ぶ恐れがある。
+    if (this._connectingPromise) return this._connectingPromise;
 
-    this.setStatus("connecting");
-
-    try {
-      if (!this._printer) {
-        this._printer = new LXD02Printer({
-          onStatusChange: (s) => {
-            this._printerStatus = s;
-            this._onStatusChange?.(this._status, this._printerStatus);
-          },
-        });
-        if (typeof window !== "undefined") {
-          (window as any)[GLOBAL_PRINTER_KEY] = this._printer;
+    this._connectingPromise = (async () => {
+      this.setStatus("connecting");
+      try {
+        if (!this._printer) {
+          this._printer = new LXD02Printer({
+            onStatusChange: (s) => {
+              this._printerStatus = s;
+              this._onStatusChange?.(this._status, this._printerStatus);
+            },
+          });
+          if (typeof window !== "undefined") {
+            (window as any)[GLOBAL_PRINTER_KEY] = this._printer;
+          }
         }
+        await this._printer.connect();
+        this.setStatus("connected");
+      } catch (e) {
+        this.setStatus("error");
+        throw e;
+      } finally {
+        this._connectingPromise = null;
       }
-      await this._printer.connect();
-      this.setStatus("connected");
-    } catch (e) {
-      this.setStatus("error");
-      throw e;
-    }
+    })();
+
+    return this._connectingPromise;
   }
 
   /**
