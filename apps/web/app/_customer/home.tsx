@@ -59,8 +59,11 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   try {
     const { orderNumber, createdAt } = await createOrder(db, context.cloudflare.env, cartItems);
+    // 印字に必要な name/quantity をサーバー正規化済みの cartItems から返す。
+    // クライアントの cart 状態にズレがあっても、レシートと DB に永続化された注文内容を一致させる。
+    const items = cartItems.map((c) => ({ name: c.name, quantity: c.quantity }));
     // Date は JSON シリアライズで ISO 文字列に変換されるので、クライアントで new Date() で復元する
-    return { orderNumber, createdAt: createdAt.toISOString() };
+    return { orderNumber, createdAt: createdAt.toISOString(), items };
   } catch {
     return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
   }
@@ -86,7 +89,9 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const [phase, setPhase] = useState<Phase>("menu");
   const [completedOrderNumber, setCompletedOrderNumber] = useState<number | null>(null);
   const [completedOrderCreatedAt, setCompletedOrderCreatedAt] = useState<Date | null>(null);
-  const [completedOrderItems, setCompletedOrderItems] = useState<CartItem[]>([]);
+  const [completedOrderItems, setCompletedOrderItems] = useState<
+    { name: string; quantity: number }[]
+  >([]);
   const [printerStatus, setPrinterStatus] = useState<ConnectionStatus>("disconnected");
   const [printerStatusData, setPrinterStatusData] = useState<PrinterStatus | null>(null);
   const [optimisticDensity, setOptimisticDensity] = useState<number | null>(null);
@@ -119,11 +124,12 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     if ("orderNumber" in actionData && actionData.orderNumber !== undefined) {
       processedActionData.current = actionData;
       const createdAt = new Date(actionData.createdAt);
-      // 再印刷時に必要なので注文確定時のスナップショットを保持する（cart は閉じる時にクリアされるため）
-      const snapshotItems = cart.map((c) => ({ ...c }));
+      // 印字・表示に使う items は action がサーバー正規化して返したものを採用する
+      // （クライアント cart に改変があっても DB に永続化された注文と必ず一致させるため）
+      const serverItems = actionData.items ?? [];
       setCompletedOrderNumber(actionData.orderNumber);
       setCompletedOrderCreatedAt(createdAt);
-      setCompletedOrderItems(snapshotItems);
+      setCompletedOrderItems(serverItems);
       setPhase("complete");
 
       // 自動印刷の実行
@@ -132,7 +138,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         try {
           const canvas = await receiptGenerator.generate({
             orderNumber: actionData.orderNumber!,
-            items: snapshotItems.map((c) => ({ name: c.name, quantity: c.quantity })),
+            items: serverItems,
             timestamp: createdAt,
           });
           await printerClient.print(canvas);
@@ -147,7 +153,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       };
       printAuto();
     }
-  }, [actionData, cart, isAutoPrintEnabled]);
+  }, [actionData, isAutoPrintEnabled]);
 
   const handlePrintSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -175,7 +181,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       }
       const canvas = await receiptGenerator.generate({
         orderNumber: completedOrderNumber,
-        items: completedOrderItems.map((c) => ({ name: c.name, quantity: c.quantity })),
+        items: completedOrderItems,
         timestamp: completedOrderCreatedAt,
       });
       await printerClient.print(canvas);
