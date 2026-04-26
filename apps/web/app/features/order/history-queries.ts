@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { menuItems, orderItems, orders } from "../../../db/schema";
 import { createDb } from "../../lib/db";
 import { parseJstString } from "../../lib/datetime";
@@ -60,7 +60,13 @@ export async function getRecentOrders(
   }
 
   const orderIds = pageRows.map((o) => o.id);
-  const items = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+  // 表示・印字（receiptGenerator は最初の3件で切る）の順を安定させるため、
+  // createdAt → id でソートする。同一注文の items は同秒で並ぶことが多いので id をタイブレークに使う。
+  const items = await db
+    .select()
+    .from(orderItems)
+    .where(inArray(orderItems.orderId, orderIds))
+    .orderBy(asc(orderItems.createdAt), asc(orderItems.id));
 
   const menuIds = [...new Set(items.map((i) => i.menuItemId))];
   const menus =

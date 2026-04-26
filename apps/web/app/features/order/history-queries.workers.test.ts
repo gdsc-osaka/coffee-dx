@@ -136,6 +136,25 @@ describe("getRecentOrders", () => {
     expect(page2.orders.map((o) => o.id)).toEqual(["o-a"]);
   });
 
+  it("同一注文の items は createdAt → id で安定ソートされる", async () => {
+    // receiptGenerator が slice(0, 3) で先頭から3件しか印字しないため、
+    // 毎回の取得で順が変わると、再印刷時に印字される items が変わってしまう。
+    // id を意図的に "i-c" → "i-a" → "i-b" の順で投入し、結果が id 昇順 (a, b, c) になることを検証する。
+    await seedOrder(db, {
+      id: "o-1",
+      orderNumber: 1,
+      createdAt: "2026-04-26 10:00:00",
+      items: [
+        { id: "i-c", menuItemId: "menu-1", quantity: 1 },
+        { id: "i-a", menuItemId: "menu-2", quantity: 2 },
+        { id: "i-b", menuItemId: "menu-1", quantity: 3 },
+      ],
+    });
+
+    const result = await getRecentOrders(d1Db, { limit: 10 });
+    expect(result.orders[0].items.map((i) => i.id)).toEqual(["i-a", "i-b", "i-c"]);
+  });
+
   it("キャンセル済み・完了済みも含めて返す（ステータスでのフィルタはしない）", async () => {
     await seedOrder(db, {
       id: "o-c",
