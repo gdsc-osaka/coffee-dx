@@ -21,7 +21,6 @@ export class PrinterClient {
       const globalAny = window as any;
       if (globalAny[GLOBAL_PRINTER_KEY]) {
         this._printer = globalAny[GLOBAL_PRINTER_KEY];
-        this._status = "connected"; // 以前のセッションで接続されていたと仮定
       }
     }
   }
@@ -29,6 +28,16 @@ export class PrinterClient {
   private setStatus(status: ConnectionStatus) {
     this._status = status;
     this._onStatusChange?.(this._status, this._printerStatus);
+  }
+
+  private handlePrinterStatus(s: PrinterStatus) {
+    this._printerStatus = s;
+    // 接続中の手動 connect() フローを潰さないよう、connecting 中は status を上書きしない
+    if (this._status === "connecting") {
+      this._onStatusChange?.(this._status, this._printerStatus);
+      return;
+    }
+    this.setStatus(s.isConnected ? "connected" : "disconnected");
   }
 
   onStatusUpdate(
@@ -50,10 +59,7 @@ export class PrinterClient {
     try {
       if (!this._printer) {
         this._printer = new LXD02Printer({
-          onStatusChange: (s) => {
-            this._printerStatus = s;
-            this._onStatusChange?.(this._status, this._printerStatus);
-          },
+          onStatusChange: (s) => this.handlePrinterStatus(s),
         });
         if (typeof window !== "undefined") {
           (window as any)[GLOBAL_PRINTER_KEY] = this._printer;

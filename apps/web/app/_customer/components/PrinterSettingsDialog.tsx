@@ -49,11 +49,13 @@ export function PrinterSettingsDialog({
             </Button>
           </div>
 
-          {printerStatusData && (
+          {printerStatus === "connected" && printerStatusData && (
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-stone-800 p-3 rounded-xl border border-stone-700">
                 <p className="text-[10px] text-stone-500 uppercase">Battery</p>
-                <p className="text-xl font-bold">{printerStatusData.battery}%</p>
+                <p className="text-xl font-bold">
+                  {printerStatusData.battery !== undefined ? `${printerStatusData.battery}%` : "--"}
+                </p>
               </div>
               <div className="bg-stone-800 p-3 rounded-xl border border-stone-700">
                 <p className="text-[10px] text-stone-500 uppercase">Paper Status</p>
