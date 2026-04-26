@@ -1,3 +1,4 @@
+import { data } from "react-router";
 import type { Route } from "./+types/orders-history";
 import { createDb } from "~/lib/db";
 import { getRecentOrders } from "~/features/order/history-queries";
@@ -9,7 +10,18 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const cursorCreatedAt = url.searchParams.get("cursorCreatedAt");
   const cursorId = url.searchParams.get("cursorId");
 
-  const cursor = cursorCreatedAt && cursorId ? { createdAt: cursorCreatedAt, id: cursorId } : null;
+  // (createdAt, id) は cursor pagination の境界条件にペアで使うため、片方だけ来た場合は
+  // ページがスキップされ得るバグ呼び込みになる。境界が曖昧なリクエストは 400 で弾く。
+  const hasCreatedAt = cursorCreatedAt !== null;
+  const hasId = cursorId !== null;
+  if (hasCreatedAt !== hasId) {
+    throw data(
+      { error: "cursorCreatedAt と cursorId はセットで指定してください" },
+      { status: 400 },
+    );
+  }
+
+  const cursor = hasCreatedAt && hasId ? { createdAt: cursorCreatedAt!, id: cursorId! } : null;
 
   const db = createDb(context.cloudflare.env.DB);
   const page = await getRecentOrders(db, { limit: PAGE_SIZE, cursor });

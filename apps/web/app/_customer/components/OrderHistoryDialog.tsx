@@ -72,7 +72,7 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
         params.set("cursorCreatedAt", cursor.createdAt);
         params.set("cursorId", cursor.id);
       }
-      const res = await fetch(`/orders-history?${params.toString()}`);
+      const res = await fetch(`/cashier/orders-history?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as LoaderResponse;
       return data;
