@@ -32,8 +32,8 @@ importers:
         specifier: ^0.511.0
         version: 0.511.0(react@19.2.4)
       lx-printer:
-        specifier: ^0.2.0
-        version: 0.2.0
+        specifier: ^0.3.0
+        version: 0.3.0
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -3204,8 +3204,8 @@ packages:
     peerDependencies:
       react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
-  lx-printer@0.2.0:
-    resolution: {integrity: sha512-Fv25geBcMDFBBlnqlyDsUdnf/sAa66P+wZul9SXPFc6O/E4SQqI9ObvoQHCiYW0FTZs6LkDWvtlMBZtkeCcJ7g==}
+  lx-printer@0.3.0:
+    resolution: {integrity: sha512-rU9LEnTv5NxXjchinhdfZTw1bzntzqELLO0bQwf3vL3WWacpOzMydNp5kzDNSXzBmVgcCSJcisafuPuvLJ8VeQ==}
 
   lz-string@1.5.0:
     resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
@@ -6681,7 +6681,7 @@ snapshots:
     dependencies:
       react: 19.2.4
 
-  lx-printer@0.2.0: {}
+  lx-printer@0.3.0: {}
 
   lz-string@1.5.0: {}
 

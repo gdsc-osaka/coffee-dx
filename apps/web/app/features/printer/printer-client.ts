@@ -2,6 +2,14 @@ import { LXD02Printer, type PrinterStatus } from "lx-printer/lx-d02";
 
 export type ConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 
+// 印刷中に再度 print() が呼ばれた場合に投げられるエラー
+export class PrinterBusyError extends Error {
+  constructor() {
+    super("Printer is already printing");
+    this.name = "PrinterBusyError";
+  }
+}
+
 // HMR対策としてグローバルにインスタンスを保持する
 const GLOBAL_PRINTER_KEY = "__COFFEE_DX_PRINTER__";
 
@@ -85,7 +93,14 @@ export class PrinterClient {
         throw new Error("Printer not connected. Call connect() first in a user gesture.");
       }
     }
-    await this._printer.print(data);
+    try {
+      await this._printer.print(data);
+    } catch (e) {
+      if (e instanceof Error && e.message === "Printer is already printing") {
+        throw new PrinterBusyError();
+      }
+      throw e;
+    }
   }
 
   /**
