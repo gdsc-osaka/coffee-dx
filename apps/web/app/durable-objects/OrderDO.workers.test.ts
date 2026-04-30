@@ -68,6 +68,7 @@ describe("OrderDO", () => {
     await db.insert(orders).values([
       {
         id: "o1",
+        businessDate: "2026-05-01",
         orderNumber: 101,
         status: "pending",
         createdAt: new Date().toISOString(),
@@ -131,6 +132,7 @@ describe("OrderDO", () => {
     await db.insert(orders).values([
       {
         id: "o3",
+        businessDate: "2026-05-01",
         orderNumber: 103,
         status: "pending",
         createdAt: new Date().toISOString(),
