@@ -75,10 +75,7 @@ export const brewUnits = sqliteTable(
     updatedAt: text("updated_at").notNull().default(jstNow),
   },
   (t) => [
-    check(
-      "brew_units_status_check",
-      sql`${t.status} IN ('brewing', 'ready')`,
-    ),
+    check("brew_units_status_check", sql`${t.status} IN ('brewing', 'ready')`),
     index("idx_brew_units_menu_date").on(t.menuItemId, t.businessDate),
     index("idx_brew_units_order_item").on(t.orderItemId),
     index("idx_brew_units_batch").on(t.batchId),
