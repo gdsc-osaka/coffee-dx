@@ -93,17 +93,10 @@ describe("OrderDO", () => {
     status: "pending" | "brewing" | "ready" | "completed" | "cancelled",
   ) => {
     const now = isoNow();
-    return db
-      .insert(orders)
-      .values([{ id, orderNumber, status, createdAt: now, updatedAt: now }]);
+    return db.insert(orders).values([{ id, orderNumber, status, createdAt: now, updatedAt: now }]);
   };
 
-  const insertOrderItem = (
-    id: string,
-    orderId: string,
-    menuItemId: string,
-    quantity: number,
-  ) => {
+  const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
     const now = isoNow();
     return db
       .insert(orderItems)
