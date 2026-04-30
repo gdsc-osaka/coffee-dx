@@ -25,10 +25,38 @@ type CashierOrder = {
   items: CashierOrderItem[];
 };
 
+type BrewUnitData = {
+  id: string;
+  batchId: string;
+  menuItemId: string;
+  menuItemName: string;
+  orderItemId: string | null;
+  status: "brewing" | "ready";
+  businessDate: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ServerMessage =
-  | { type: "SNAPSHOT"; orders: CashierOrder[] }
+  | { type: "SNAPSHOT"; orders: CashierOrder[]; brewUnits: BrewUnitData[] }
   | { type: "ORDER_CREATED"; order: CashierOrder }
-  | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus };
+  | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
+  | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
+  | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
+
+type VirtualOrderItem = CashierOrderItem & {
+  readyCount: number;
+  brewingCount: number;
+  pendingCount: number;
+};
+
+type VirtualOrder = Omit<CashierOrder, "items"> & {
+  items: VirtualOrderItem[];
+  // status は UI 配置用の仮想ステータス、serverStatus は OrderDO/D1 の実ステータス。
+  // 完了アクションは serverStatus === "ready" の注文にのみ許可する（DO の /close は ready 以外で 409）。
+  serverStatus: OrderStatus;
+};
 
 export async function loader(_args: Route.LoaderArgs) {
   return { eventId: getBusinessDate() };
@@ -48,7 +76,9 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   try {
     const stub = getOrderDOStub(context.cloudflare.env, eventId);
-    await callOrderDO(stub, `/do/orders/${encodeURIComponent(orderId)}/close`);
+    await callOrderDO(stub, eventId, `/do/orders/${encodeURIComponent(orderId)}/close`, {
+      method: "POST",
+    });
     return { ok: true, orderId };
   } catch {
     return {
@@ -64,6 +94,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
   const navigation = useNavigation();
 
   const [ordersById, setOrdersById] = useState<Record<string, CashierOrder>>({});
+  const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
@@ -92,9 +123,14 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
           const message = JSON.parse(event.data) as ServerMessage;
 
           if (message.type === "SNAPSHOT") {
-            const next: Record<string, CashierOrder> = {};
-            for (const order of message.orders) next[order.id] = order;
-            setOrdersById(next);
+            const nextOrders: Record<string, CashierOrder> = {};
+            for (const order of message.orders) nextOrders[order.id] = order;
+            setOrdersById(nextOrders);
+
+            const nextUnits: Record<string, BrewUnitData> = {};
+            for (const unit of message.brewUnits) nextUnits[unit.id] = unit;
+            setBrewUnitsById(nextUnits);
+
             setIsSnapshotLoaded(true);
             return;
           }
@@ -122,6 +158,32 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                 },
               };
             });
+            return;
+          }
+
+          if (message.type === "BREW_UNITS_CREATED") {
+            setBrewUnitsById((prev) => {
+              const next = { ...prev };
+              for (const u of message.brewUnits) next[u.id] = u;
+              return next;
+            });
+            return;
+          }
+
+          if (message.type === "BREW_UNIT_UPDATED") {
+            setBrewUnitsById((prev) => ({
+              ...prev,
+              [message.brewUnit.id]: message.brewUnit,
+            }));
+            return;
+          }
+
+          if (message.type === "BREW_UNIT_DELETED") {
+            setBrewUnitsById((prev) => {
+              const { [message.brewUnitId]: _removed, ...rest } = prev;
+              return rest;
+            });
+            return;
           }
         } catch {
           setConnectionError("メッセージ受信時にエラーが発生しました");
@@ -149,23 +211,109 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
     };
   }, [eventId]);
 
-  const allOrders = useMemo(
-    () => Object.values(ordersById).sort((a, b) => a.orderNumber - b.orderNumber),
-    [ordersById],
+  const virtualOrders = useMemo(() => {
+    const units = Object.values(brewUnitsById);
+
+    // 1. メニューごとの brewing 数を集計
+    const brewingCounts = new Map<string, number>();
+    for (const u of units) {
+      if (u.status === "brewing") {
+        brewingCounts.set(u.menuItemId, (brewingCounts.get(u.menuItemId) || 0) + 1);
+      }
+    }
+
+    // 2. 注文を古い順にソートして描画ステータスを決定
+    const sortedOrders = Object.values(ordersById).sort(
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.orderNumber - b.orderNumber,
+    );
+
+    const result: VirtualOrder[] = [];
+
+    for (const order of sortedOrders) {
+      if (order.status === "completed" || order.status === "cancelled") continue;
+
+      const virtualItems: VirtualOrderItem[] = [];
+      let isAllReady = true;
+      let hasBrewing = false;
+
+      for (const item of order.items) {
+        // 実際に紐付いている ready な杯数
+        const readyCount = units.filter(
+          (u) => u.orderItemId === item.id && u.status === "ready",
+        ).length;
+        // まだ必要な杯数
+        const neededCount = item.quantity - readyCount;
+
+        // 仮想的に割り当て可能な brewing 杯数
+        const availableBrewing = brewingCounts.get(item.menuItemId) || 0;
+        const virtualBrewingCount = Math.min(neededCount, availableBrewing);
+
+        // 残りの brewing 数を減らす
+        brewingCounts.set(item.menuItemId, availableBrewing - virtualBrewingCount);
+
+        const pendingCount = neededCount - virtualBrewingCount;
+
+        if (pendingCount > 0 || virtualBrewingCount > 0) {
+          isAllReady = false;
+        }
+        if (virtualBrewingCount > 0) {
+          hasBrewing = true;
+        }
+
+        virtualItems.push({
+          ...item,
+          readyCount,
+          brewingCount: virtualBrewingCount,
+          pendingCount,
+        });
+      }
+
+      // 仮想ステータスを決定（実際のDB上はpendingのままでも、UI上はbrewingとして扱う）
+      let displayStatus = order.status;
+      if (displayStatus !== "ready") {
+        if (isAllReady) {
+          displayStatus = "ready";
+        } else if (hasBrewing) {
+          displayStatus = "brewing";
+        } else {
+          displayStatus = "pending";
+        }
+      }
+
+      result.push({
+        ...order,
+        status: displayStatus,
+        serverStatus: order.status,
+        items: virtualItems,
+      });
+    }
+
+    return result;
+  }, [ordersById, brewUnitsById]);
+
+  // OrderNumber順でのソート（あるいはcreatedAt順。Cashierは通常OrderNumber順が見やすい）
+  const allOrdersSorted = useMemo(
+    () => [...virtualOrders].sort((a, b) => a.orderNumber - b.orderNumber),
+    [virtualOrders],
+  );
+
+  const pendingOrders = useMemo(
+    () => allOrdersSorted.filter((order) => order.status === "pending"),
+    [allOrdersSorted],
   );
   const brewingOrders = useMemo(
-    () => allOrders.filter((order) => order.status === "brewing"),
-    [allOrders],
+    () => allOrdersSorted.filter((order) => order.status === "brewing"),
+    [allOrdersSorted],
   );
   const readyOrders = useMemo(
-    () => allOrders.filter((order) => order.status === "ready"),
-    [allOrders],
+    () => allOrdersSorted.filter((order) => order.status === "ready"),
+    [allOrdersSorted],
   );
 
   const submittingOrderId =
     navigation.state === "submitting" ? navigation.formData?.get("orderId") : null;
 
-  const isEmpty = isSnapshotLoaded && brewingOrders.length === 0 && readyOrders.length === 0;
+  const isEmpty = isSnapshotLoaded && allOrdersSorted.length === 0;
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -215,26 +363,37 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                   <div className="w-6 shrink-0" />
                   {readyOrders.map((order) => {
                     const isSubmittingThisOrder = submittingOrderId === order.id;
+                    // 仮想 ready のみで実 status が pending/brewing の場合、サーバ側 /close は 409 になる。
+                    // ボタンは出さず、ドリップ完了の確定を待つプレースホルダを表示する。
+                    const canClose = order.serverStatus === "ready";
                     return (
                       <OrderStatusCard
                         key={order.id}
                         status="ready"
                         orderNumber={order.orderNumber}
                         createdAt={order.createdAt}
-                        itemCount={order.items.length}
+                        itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
                         items={order.items.map((item) => ({
                           id: item.id,
                           name: item.name,
                           quantity: item.quantity,
+                          readyCount: item.readyCount,
+                          brewingCount: item.brewingCount,
+                          pendingCount: item.pendingCount,
                         }))}
-                        action={{
-                          label: "完了",
-                          isSubmitting: isSubmittingThisOrder,
-                          fields: [
-                            { name: "orderId", value: order.id },
-                            { name: "eventId", value: eventId },
-                          ],
-                        }}
+                        action={
+                          canClose
+                            ? {
+                                label: "完了",
+                                isSubmitting: isSubmittingThisOrder,
+                                fields: [
+                                  { name: "orderId", value: order.id },
+                                  { name: "eventId", value: eventId },
+                                ],
+                              }
+                            : undefined
+                        }
+                        actionPlaceholder={canClose ? undefined : "ドリップ完了後に提供できます"}
                       />
                     );
                   })}
@@ -263,11 +422,50 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                       status="brewing"
                       orderNumber={order.orderNumber}
                       createdAt={order.createdAt}
-                      itemCount={order.items.length}
+                      itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
                       items={order.items.map((item) => ({
                         id: item.id,
                         name: item.name,
                         quantity: item.quantity,
+                        readyCount: item.readyCount,
+                        brewingCount: item.brewingCount,
+                        pendingCount: item.pendingCount,
+                      }))}
+                    />
+                  ))}
+                  <div className="w-6 shrink-0" />
+                </div>
+              )}
+            </section>
+
+            {/* 待機中 (pending) */}
+            <section className="px-6">
+              <div className="flex items-center gap-2 px-6 mb-3">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                <h2 className="text-lg font-bold text-stone-700">待機中</h2>
+                <span className="text-xs bg-amber-50 text-amber-600 px-6 py-0.5 rounded-full font-medium">
+                  {pendingOrders.length}
+                </span>
+              </div>
+              {pendingOrders.length === 0 ? (
+                <p className="px-6 text-sm text-stone-400">待機中の注文はありません</p>
+              ) : (
+                <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
+                  <div className="w-6 shrink-0" />
+                  {pendingOrders.map((order) => (
+                    <OrderStatusCard
+                      key={order.id}
+                      status="pending"
+                      orderNumber={order.orderNumber}
+                      createdAt={order.createdAt}
+                      itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
+                      items={order.items.map((item) => ({
+                        id: item.id,
+                        name: item.name,
+                        quantity: item.quantity,
+                        readyCount: item.readyCount,
+                        brewingCount: item.brewingCount,
+                        pendingCount: item.pendingCount,
                       }))}
                     />
                   ))}

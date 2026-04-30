@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,6 +16,18 @@ vi.mock("react-router", () => ({
 }));
 
 import DripHome from "./home";
+
+type BrewUnit = {
+  id: string;
+  batchId: string;
+  menuItemId: string;
+  menuItemName: string;
+  orderItemId: string | null;
+  status: "brewing" | "ready";
+  businessDate: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 type ServerMessage =
   | {
@@ -36,9 +48,13 @@ type ServerMessage =
           updatedAt: string;
         }>;
       }>;
+      brewUnits: BrewUnit[];
     }
   | { type: "ORDER_CREATED"; order: unknown }
-  | { type: "ORDER_UPDATED"; orderId: string; status: string };
+  | { type: "ORDER_UPDATED"; orderId: string; status: string }
+  | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnit[] }
+  | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnit }
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -65,34 +81,58 @@ class MockWebSocket {
   }
 }
 
-function buildOrder({
-  id,
-  orderNumber,
-  status,
-}: {
-  id: string;
-  orderNumber: number;
-  status: "pending" | "brewing" | "ready";
-}) {
+const ts = "2026-04-18 12:00:00";
+
+function buildOrder(id: string, orderNumber: number, menuItemId: string, quantity: number) {
   return {
     id,
     orderNumber,
-    status,
-    createdAt: "2026-04-18 12:00:00",
-    updatedAt: "2026-04-18 12:00:00",
+    status: "pending" as const,
+    createdAt: ts,
+    updatedAt: ts,
     items: [
       {
         id: `${id}-item`,
         orderId: id,
-        menuItemId: "menu-1",
-        quantity: 1,
+        menuItemId,
+        quantity,
         name: "アメリカーノ",
-        createdAt: "2026-04-18 12:00:00",
-        updatedAt: "2026-04-18 12:00:00",
+        createdAt: ts,
+        updatedAt: ts,
       },
     ],
   };
 }
+
+function buildBrewUnit(overrides: {
+  id: string;
+  status: "brewing" | "ready";
+  orderItemId?: string | null;
+  batchId?: string;
+}): BrewUnit {
+  return {
+    batchId: overrides.batchId ?? "b1",
+    menuItemId: "menu-1",
+    menuItemName: "アメリカーノ",
+    orderItemId: overrides.orderItemId ?? null,
+    businessDate: "2026-04-18",
+    createdAt: ts,
+    updatedAt: ts,
+    ...overrides,
+  };
+}
+
+const renderDrip = () =>
+  render(
+    <DripHome
+      {...({
+        loaderData: {
+          eventId: "2026-04-18",
+          menus: [{ id: "menu-1", name: "アメリカーノ" }],
+        },
+      } as any)}
+    />,
+  );
 
 describe("DripHome", () => {
   beforeEach(() => {
@@ -102,8 +142,8 @@ describe("DripHome", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   });
 
-  it("SNAPSHOT受信後に pending / brewing を表示し、状態ごとのボタンを出す", async () => {
-    render(<DripHome {...({ loaderData: { eventId: "2026-04-18" } } as any)} />);
+  it("SNAPSHOT 受信後にメニューセクションが表示され、抽出中バッチに 完了/取消し ボタンと新規バッチ用の 開始 ボタンが出る", async () => {
+    renderDrip();
 
     const ws = MockWebSocket.instances[0];
     expect(ws).toBeTruthy();
@@ -113,53 +153,99 @@ describe("DripHome", () => {
       ws.emitOpen();
       ws.emitMessage({
         type: "SNAPSHOT",
-        orders: [
-          buildOrder({ id: "o1", orderNumber: 1, status: "pending" }),
-          buildOrder({ id: "o2", orderNumber: 2, status: "brewing" }),
-        ],
+        // 注文 1件 (アメリカーノ × 2 杯)
+        orders: [buildOrder("o1", 1, "menu-1", 2)],
+        // 抽出中 1 杯のバッチ
+        brewUnits: [buildBrewUnit({ id: "u1", status: "brewing" })],
+      });
+    });
+
+    // メニュー単位のセクションが描画される
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "アメリカーノ" })).toBeInTheDocument();
+    });
+
+    const section = screen
+      .getByRole("heading", { name: "アメリカーノ" })
+      .closest("section") as HTMLElement;
+    expect(section).toBeTruthy();
+
+    // 集計テキストがセクション内に出る (注文 2 / 抽出中 1 / 完成 0)
+    expect(section).toHaveTextContent(/注文/);
+    expect(section).toHaveTextContent(/抽出中/);
+    expect(section).toHaveTextContent(/完成/);
+
+    // 抽出中バッチに対する 完了 / 取消し ボタンが出る
+    expect(within(section).getByRole("button", { name: "完了" })).toBeEnabled();
+    expect(within(section).getByRole("button", { name: "取消し" })).toBeEnabled();
+
+    // 新規バッチ開始用の杯数選択 (1/2/3) と 開始 ボタン
+    expect(within(section).getByRole("button", { name: "1" })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "2" })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "3" })).toBeInTheDocument();
+    expect(within(section).getByRole("button", { name: "開始" })).toBeEnabled();
+  });
+
+  it("ready 余剰がある時に余剰削除ボタンが出る (なければ出ない)", async () => {
+    renderDrip();
+    const ws = MockWebSocket.instances[0];
+
+    // まず 余剰なし (orderItemId 紐付きの ready のみ) で開く
+    await act(async () => {
+      ws.emitMessage({
+        type: "SNAPSHOT",
+        orders: [buildOrder("o1", 1, "menu-1", 1)],
+        brewUnits: [buildBrewUnit({ id: "u-linked", status: "ready", orderItemId: "o1-item" })],
       });
     });
 
     await waitFor(() => {
-      expect(screen.getByText("#1")).toBeInTheDocument();
-      expect(screen.getByText("#2")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "アメリカーノ" })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("heading", { name: /未着手/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /ドリップ中/ })).toBeInTheDocument();
+    // 余剰なしの状態では - ボタンは出ない
+    expect(screen.queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
 
-    const startButtons = screen.getAllByRole("button", { name: "開始" });
-    expect(startButtons).toHaveLength(1);
-    expect(startButtons[0]).toBeEnabled();
+    // 余剰 (ready かつ orderItemId=null) のユニットを追加
+    await act(async () => {
+      ws.emitMessage({
+        type: "BREW_UNIT_UPDATED",
+        brewUnit: buildBrewUnit({ id: "u-surplus", status: "ready", orderItemId: null }),
+      });
+    });
 
-    const completeButtons = screen.getAllByRole("button", { name: "完成" });
-    expect(completeButtons).toHaveLength(1);
-    expect(completeButtons[0]).toBeEnabled();
+    // 余剰削除ボタンが出現する
+    await waitFor(() => {
+      expect(screen.getByTitle("余剰を1件減らす")).toBeEnabled();
+    });
   });
 
-  it("ORDER_UPDATED で ready になった注文を一覧から取り除く", async () => {
-    render(<DripHome {...({ loaderData: { eventId: "2026-04-18" } } as any)} />);
-
+  it("BREW_UNIT_DELETED で抽出中バッチが消えると 完了/取消し ボタンも消える", async () => {
+    renderDrip();
     const ws = MockWebSocket.instances[0];
 
     await act(async () => {
       ws.emitMessage({
         type: "SNAPSHOT",
-        orders: [buildOrder({ id: "o10", orderNumber: 10, status: "brewing" })],
+        orders: [],
+        brewUnits: [buildBrewUnit({ id: "u1", status: "brewing" })],
       });
     });
 
     await waitFor(() => {
-      expect(screen.getByText("#10")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "完了" })).toBeInTheDocument();
     });
 
     await act(async () => {
-      ws.emitMessage({ type: "ORDER_UPDATED", orderId: "o10", status: "ready" });
+      ws.emitMessage({ type: "BREW_UNIT_DELETED", brewUnitId: "u1" });
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("#10")).not.toBeInTheDocument();
-      expect(screen.getByText("進行中の注文はありません")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "取消し" })).not.toBeInTheDocument();
     });
+
+    // 開始 ボタンはバッチの有無にかかわらず常時表示される (新規バッチ開始用)
+    expect(screen.getByRole("button", { name: "開始" })).toBeInTheDocument();
   });
 });

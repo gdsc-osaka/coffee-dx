@@ -28,7 +28,10 @@ export default {
       }
       const id = env.ORDER_DO.idFromName(`event-${eventId}`);
       const stub = env.ORDER_DO.get(id);
-      return stub.fetch(request);
+      // DO 側で business_date の真実源として使うため、検証済み eventId をヘッダに載せる
+      const forwarded = new Request(request);
+      forwarded.headers.set("x-event-id", eventId);
+      return stub.fetch(forwarded);
     }
 
     return requestHandler(request, {

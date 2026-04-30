@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bacd0c41-7962-4cdd-ad3a-e4622c91b85e",
-  "prevId": "31152a87-0f7b-4d9d-a764-aa3f4d401c5f",
+  "id": "b8110467-e1b3-4425-acc4-1aebcf66f9ac",
+  "prevId": "1475e11b-1d5b-4fe6-b84d-b8d096f3f92a",
   "tables": {
     "menu_items": {
       "name": "menu_items",

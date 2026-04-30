@@ -13,12 +13,20 @@ type OrderStatusCardProps = {
   orderNumber: number;
   createdAt: string;
   itemCount: number;
-  items?: Array<{ id: string; name?: string; quantity: number }>;
+  items?: Array<{
+    id: string;
+    name?: string;
+    quantity: number;
+    readyCount?: number;
+    brewingCount?: number;
+    pendingCount?: number;
+  }>;
   action?: {
     label: string;
     isSubmitting?: boolean;
     fields: Array<{ name: string; value: string }>;
   };
+  actionPlaceholder?: string;
   className?: string;
 };
 
@@ -55,6 +63,7 @@ export function OrderStatusCard({
   itemCount,
   items,
   action,
+  actionPlaceholder,
   className,
 }: OrderStatusCardProps) {
   const cfg = statusConfig[status];
@@ -98,19 +107,54 @@ export function OrderStatusCard({
 
         <CardContent className="flex flex-col flex-1 pt-0 px-4 pb-4">
           {items && items.length > 0 && (
-            <ul className="flex-1 space-y-1.5 mb-3">
+            <ul className="flex-1 space-y-3 mb-3 mt-3">
               {items.map((item) => (
-                <li key={item.id} className="flex justify-between text-sm">
-                  <span className="text-stone-700">{item.name ?? "商品"}</span>
-                  <span className="text-stone-400 tabular-nums">×{item.quantity}</span>
+                <li key={item.id} className="flex flex-col gap-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-stone-700 font-medium">{item.name ?? "商品"}</span>
+                    <span className="text-stone-500 tabular-nums font-medium">
+                      ×{item.quantity}
+                    </span>
+                  </div>
+                  {/* Virtual Status Display */}
+                  {(item.readyCount !== undefined ||
+                    item.brewingCount !== undefined ||
+                    item.pendingCount !== undefined) && (
+                    <div className="flex flex-wrap gap-1">
+                      {Array.from({ length: item.readyCount || 0 }).map((_, i) => (
+                        <span
+                          key={`ready-${i}`}
+                          className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold"
+                        >
+                          ■ 完成
+                        </span>
+                      ))}
+                      {Array.from({ length: item.brewingCount || 0 }).map((_, i) => (
+                        <span
+                          key={`brewing-${i}`}
+                          className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold"
+                        >
+                          □ 抽出中
+                        </span>
+                      ))}
+                      {Array.from({ length: item.pendingCount || 0 }).map((_, i) => (
+                        <span
+                          key={`pending-${i}`}
+                          className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded font-bold"
+                        >
+                          □ 未着手
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
           {!items || items.length === 0 ? <div className="flex-1" /> : null}
 
-          {action && (
-            <Form method="post">
+          {action ? (
+            <Form method="post" className="mt-auto">
               {action.fields.map((field) => (
                 <input key={field.name} type="hidden" name={field.name} value={field.value} />
               ))}
@@ -122,7 +166,9 @@ export function OrderStatusCard({
                 {action.isSubmitting ? "更新中..." : action.label}
               </Button>
             </Form>
-          )}
+          ) : actionPlaceholder ? (
+            <p className="mt-auto py-4 text-center text-xs text-stone-400">{actionPlaceholder}</p>
+          ) : null}
         </CardContent>
       </Card>
     </div>

@@ -78,16 +78,18 @@ export async function createOrder(
   // DO に新規注文を通知（失敗時は D1 の注文を削除して整合性を保つ）
   const stub = getOrderDOStub(env, businessDate);
   try {
-    await callOrderDO(stub, "/do/new-order", {
-      id: orderId,
-      orderNumber,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-      items: orderItemsData.map((item) => ({
-        ...item,
-        name: menuItemMap.get(item.menuItemId)?.name ?? "",
-      })),
+    await callOrderDO(stub, businessDate, "/do/new-order", {
+      body: {
+        id: orderId,
+        orderNumber,
+        status: "pending",
+        createdAt: now,
+        updatedAt: now,
+        items: orderItemsData.map((item) => ({
+          ...item,
+          name: menuItemMap.get(item.menuItemId)?.name ?? "",
+        })),
+      },
     });
   } catch (err) {
     // DO 通知失敗時は D1 に書き込んだ注文を削除してロールバック（orderItems は CASCADE で連鎖削除）

@@ -26,13 +26,21 @@ export function getOrderDOStub(env: Env, eventId: string): DurableObjectStub {
 
 export async function callOrderDO(
   stub: DurableObjectStub,
+  eventId: string,
   path: string,
-  body?: unknown,
+  options?: { method?: string; body?: unknown },
 ): Promise<void> {
+  if (!isValidEventId(eventId)) {
+    throw new Error(`Invalid eventId format: ${eventId}`);
+  }
+  const method = options?.method ?? "POST";
+  const body = options?.body;
+  const headers: Record<string, string> = { "x-event-id": eventId };
+  if (body) headers["Content-Type"] = "application/json";
   const res = await stub.fetch(
     new Request(new URL(path, "https://do").toString(), {
-      method: "POST",
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      method,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     }),
   );

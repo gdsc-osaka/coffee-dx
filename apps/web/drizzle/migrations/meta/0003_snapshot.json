@@ -1,9 +1,118 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1475e11b-1d5b-4fe6-b84d-b8d096f3f92a",
-  "prevId": "1084116e-8526-46a1-9300-63265adadf09",
+  "id": "20625933-592c-401f-8adf-4a28df66c6cf",
+  "prevId": "b8110467-e1b3-4425-acc4-1aebcf66f9ac",
   "tables": {
+    "brew_units": {
+      "name": "brew_units",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "menu_item_id": {
+          "name": "menu_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "order_item_id": {
+          "name": "order_item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'brewing'"
+        },
+        "business_date": {
+          "name": "business_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now', '+9 hours'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now', '+9 hours'))"
+        }
+      },
+      "indexes": {
+        "idx_brew_units_menu_date": {
+          "name": "idx_brew_units_menu_date",
+          "columns": ["menu_item_id", "business_date"],
+          "isUnique": false
+        },
+        "idx_brew_units_order_item": {
+          "name": "idx_brew_units_order_item",
+          "columns": ["order_item_id"],
+          "isUnique": false
+        },
+        "idx_brew_units_batch": {
+          "name": "idx_brew_units_batch",
+          "columns": ["batch_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "brew_units_menu_item_id_menu_items_id_fk": {
+          "name": "brew_units_menu_item_id_menu_items_id_fk",
+          "tableFrom": "brew_units",
+          "tableTo": "menu_items",
+          "columnsFrom": ["menu_item_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "brew_units_order_item_id_order_items_id_fk": {
+          "name": "brew_units_order_item_id_order_items_id_fk",
+          "tableFrom": "brew_units",
+          "tableTo": "order_items",
+          "columnsFrom": ["order_item_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "brew_units_status_check": {
+          "name": "brew_units_status_check",
+          "value": "\"brew_units\".\"status\" IN ('brewing', 'ready')"
+        }
+      }
+    },
     "menu_items": {
       "name": "menu_items",
       "columns": {
@@ -191,6 +300,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "business_date": {
+          "name": "business_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "order_number": {
           "name": "order_number",
           "type": "integer",
@@ -224,9 +340,9 @@
         }
       },
       "indexes": {
-        "orders_order_number_unique": {
-          "name": "orders_order_number_unique",
-          "columns": ["order_number"],
+        "orders_business_date_order_number_unique": {
+          "name": "orders_business_date_order_number_unique",
+          "columns": ["business_date", "order_number"],
           "isUnique": true
         },
         "orders_created_at_id_idx": {
