@@ -160,6 +160,9 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     if (!window.confirm("レシートを再印刷しますか？")) return;
 
     try {
+      if (printerStatus === "disconnected" || printerStatus === "error") {
+        await printerClient.connect();
+      }
       const canvas = await receiptGenerator.generate({
         orderNumber: completedOrderNumber,
         items: cart.map((c) => ({ name: c.name, quantity: c.quantity })),
@@ -359,7 +362,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                   variant="outline"
                   className="w-full h-12 text-stone-600"
                   onClick={handleReprint}
-                  disabled={printerStatusData?.isPrinting}
+                  disabled={printerStatus === "connecting" || printerStatusData?.isPrinting}
                 >
                   <Printer className="size-4 mr-2" />
                   {printerStatusData?.isPrinting ? "印刷中..." : "再印刷"}
