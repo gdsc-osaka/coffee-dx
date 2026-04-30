@@ -77,7 +77,7 @@ export async function createOrder(
   // DO に新規注文を通知（失敗時は D1 の注文を削除して整合性を保つ）
   const stub = getOrderDOStub(env, businessDate);
   try {
-    await callOrderDO(stub, "/do/new-order", {
+    await callOrderDO(stub, businessDate, "/do/new-order", {
       body: {
         id: orderId,
         orderNumber,

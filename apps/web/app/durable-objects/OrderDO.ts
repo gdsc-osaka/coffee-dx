@@ -48,6 +48,9 @@ export class OrderDurableObject implements DurableObject {
   private readonly brewUnits = new Map<string, BrewUnitData>();
   private readonly sessions = new Set<WebSocket>();
   private initialized = false;
+  // この DO が紐づく eventId（= business_date）。Worker 境界で検証済みの値が x-event-id に乗ってくる前提で、
+  // brew_units を書き込む際の真実源として使う。
+  private eventId: string | null = null;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -56,6 +59,12 @@ export class OrderDurableObject implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
+    const headerEventId = request.headers.get("x-event-id");
+    if (!headerEventId) {
+      return new Response("Missing x-event-id header", { status: 400 });
+    }
+    this.eventId = headerEventId;
 
     if (request.headers.get("Upgrade") === "websocket") {
       return this.handleWebSocket();
@@ -249,11 +258,15 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   private async newOrder(order: OrderData): Promise<void> {
-    this.orders.set(order.id, order);
-    this.broadcast({ type: "ORDER_CREATED", order });
+    // handleBatchComplete と同じ ready 未紐付けプールを取り合うため、
+    // setTimeout バックオフ越しの interleave を防ぐ目的で全体を直列化する。
+    await this.state.blockConcurrencyWhile(async () => {
+      this.orders.set(order.id, order);
+      this.broadcast({ type: "ORDER_CREATED", order });
 
-    // 既存の ready・未紐付けユニットがあれば自動割り当て
-    await this.autoAssignReadyUnits(order);
+      // 既存の ready・未紐付けユニットがあれば自動割り当て
+      await this.autoAssignReadyUnits(order);
+    });
   }
 
   /**
@@ -281,12 +294,17 @@ export class OrderDurableObject implements DurableObject {
         .slice(0, needed);
 
       for (const unit of candidates) {
-        await this.writeWithRetry(() =>
+        const result = await this.writeWithRetry(() =>
           db
             .update(brewUnits)
             .set({ orderItemId: item.id, updatedAt: now })
             .where(and(eq(brewUnits.id, unit.id), isNull(brewUnits.orderItemId))),
         );
+
+        // 競合により他リクエストが先に紐付けた場合は changes=0。
+        // DB と整合させるためメモリ更新/broadcast をスキップする。
+        if ((result as D1Result).meta?.changes === 0) continue;
+
         unit.orderItemId = item.id;
         unit.updatedAt = now;
         this.brewUnits.set(unit.id, unit);
@@ -296,7 +314,7 @@ export class OrderDurableObject implements DurableObject {
     }
 
     if (anyAssigned) {
-      this.evaluateOrderStatus(order.id);
+      await this.evaluateOrderStatus(order.id);
     }
   }
 
@@ -308,11 +326,14 @@ export class OrderDurableObject implements DurableObject {
     const body = (await request.json()) as {
       menuItemId: string;
       count: number;
-      businessDate: string;
     };
-    const { menuItemId, count, businessDate } = body;
+    const { menuItemId, count } = body;
 
     if (!menuItemId || !count || count < 1) return new Response("Invalid body", { status: 400 });
+
+    // business_date は DO 自身が保持する eventId を真実源とする（クライアント任せにしない）
+    const businessDate = this.eventId;
+    if (!businessDate) return new Response("Missing eventId context", { status: 400 });
 
     const db = createDb(this.env.DB);
 
@@ -364,90 +385,107 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   private async handleBatchComplete(batchId: string): Promise<Response> {
-    const db = createDb(this.env.DB);
-    const now = new Date().toISOString();
+    // バッチ完了→プール作成→紐付けは複数の await を跨ぐ。D1 アクセスは DO の Input Gate
+    // の保護外であり、writeWithRetry の setTimeout バックオフでも Gate が開放されるため、
+    // 並走する new-order / 別 complete との interleave で割り当てが二重化しうる。
+    // 処理全体を blockConcurrencyWhile で直列化したうえで、紐付け UPDATE 自体も
+    // order_item_id IS NULL + changes チェックで上書きを防ぐ二重防御とする。
+    return this.state.blockConcurrencyWhile(async () => {
+      const db = createDb(this.env.DB);
+      const now = new Date().toISOString();
 
-    // 1. バッチ内の brewing ユニットを ready に更新
-    const batchUnits = [...this.brewUnits.values()].filter(
-      (u) => u.batchId === batchId && u.status === "brewing",
-    );
-    if (batchUnits.length === 0)
-      return new Response("Batch not found or already completed", {
-        status: 404,
-      });
+      // 1. バッチ内の brewing ユニットを ready に更新
+      const batchUnits = [...this.brewUnits.values()].filter(
+        (u) => u.batchId === batchId && u.status === "brewing",
+      );
+      if (batchUnits.length === 0)
+        return new Response("Batch not found or already completed", {
+          status: 404,
+        });
 
-    await this.writeWithRetry(() =>
-      db
-        .update(brewUnits)
-        .set({ status: "ready", updatedAt: now })
-        .where(and(eq(brewUnits.batchId, batchId), eq(brewUnits.status, "brewing"))),
-    );
-    for (const u of batchUnits) {
-      u.status = "ready";
-      u.updatedAt = now;
-      this.brewUnits.set(u.id, u);
-    }
+      await this.writeWithRetry(() =>
+        db
+          .update(brewUnits)
+          .set({ status: "ready", updatedAt: now })
+          .where(and(eq(brewUnits.batchId, batchId), eq(brewUnits.status, "brewing"))),
+      );
+      for (const u of batchUnits) {
+        u.status = "ready";
+        u.updatedAt = now;
+        this.brewUnits.set(u.id, u);
+      }
 
-    // 2. ready かつ未紐付けのユニットをメニューごとに集計
-    //    （このバッチ分だけでなく既存の余剰も含める）
-    const readyUnassigned = [...this.brewUnits.values()].filter(
-      (u) => u.status === "ready" && u.orderItemId === null,
-    );
-    // menuItemId → ready 未紐付けユニット（createdAt 昇順）
-    const poolByMenu = new Map<string, BrewUnitData[]>();
-    for (const u of readyUnassigned) {
-      if (!poolByMenu.has(u.menuItemId)) poolByMenu.set(u.menuItemId, []);
-      poolByMenu.get(u.menuItemId)!.push(u);
-    }
-    for (const pool of poolByMenu.values()) {
-      pool.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    }
+      // 2. ready かつ未紐付けのユニットをメニューごとに集計
+      //    （このバッチ分だけでなく既存の余剰も含める）
+      const readyUnassigned = [...this.brewUnits.values()].filter(
+        (u) => u.status === "ready" && u.orderItemId === null,
+      );
+      // menuItemId → ready 未紐付けユニット（createdAt 昇順）
+      const poolByMenu = new Map<string, BrewUnitData[]>();
+      for (const u of readyUnassigned) {
+        if (!poolByMenu.has(u.menuItemId)) poolByMenu.set(u.menuItemId, []);
+        poolByMenu.get(u.menuItemId)!.push(u);
+      }
+      for (const pool of poolByMenu.values()) {
+        pool.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      }
 
-    // 3. pending / brewing 注文を createdAt 昇順で取得し、不足分を紐付け
-    const activeOrders = [...this.orders.values()]
-      .filter((o) => o.status === "pending" || o.status === "brewing")
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      // 3. pending / brewing 注文を createdAt 昇順で取得し、不足分を紐付け
+      const activeOrders = [...this.orders.values()]
+        .filter((o) => o.status === "pending" || o.status === "brewing")
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-    const affectedOrderIds = new Set<string>();
+      const affectedOrderIds = new Set<string>();
+      // 更新があったユニット ID を集約。バッチ内ユニット（brewing→ready）に加え、
+      // 既存の余剰から紐付けされたユニット（バッチ外）も含めて 1 回ずつ broadcast する。
+      const updatedUnitIds = new Set<string>(batchUnits.map((u) => u.id));
 
-    for (const order of activeOrders) {
-      for (const item of order.items) {
-        const pool = poolByMenu.get(item.menuItemId);
-        if (!pool || pool.length === 0) continue;
+      for (const order of activeOrders) {
+        for (const item of order.items) {
+          const pool = poolByMenu.get(item.menuItemId);
+          if (!pool || pool.length === 0) continue;
 
-        const alreadyLinked = [...this.brewUnits.values()].filter(
-          (u) => u.orderItemId === item.id && u.status === "ready",
-        ).length;
-        const needed = item.quantity - alreadyLinked;
-        if (needed <= 0) continue;
+          const alreadyLinked = [...this.brewUnits.values()].filter(
+            (u) => u.orderItemId === item.id && u.status === "ready",
+          ).length;
+          const needed = item.quantity - alreadyLinked;
+          if (needed <= 0) continue;
 
-        const toAssign = pool.splice(0, needed); // pool から取り出す
-        for (const unit of toAssign) {
-          await this.writeWithRetry(() =>
-            db
-              .update(brewUnits)
-              .set({ orderItemId: item.id, updatedAt: now })
-              .where(eq(brewUnits.id, unit.id)),
-          );
-          unit.orderItemId = item.id;
-          unit.updatedAt = now;
-          this.brewUnits.set(unit.id, unit);
-          affectedOrderIds.add(order.id);
+          const toAssign = pool.splice(0, needed); // pool から取り出す
+          for (const unit of toAssign) {
+            const result = await this.writeWithRetry(() =>
+              db
+                .update(brewUnits)
+                .set({ orderItemId: item.id, updatedAt: now })
+                .where(and(eq(brewUnits.id, unit.id), isNull(brewUnits.orderItemId))),
+            );
+
+            // 競合により他リクエストが先に紐付けた場合は changes=0。
+            // DB と整合させるためメモリ更新/broadcast をスキップする。
+            if ((result as D1Result).meta?.changes === 0) continue;
+
+            unit.orderItemId = item.id;
+            unit.updatedAt = now;
+            this.brewUnits.set(unit.id, unit);
+            updatedUnitIds.add(unit.id);
+            affectedOrderIds.add(order.id);
+          }
         }
       }
-    }
 
-    // 4. broadcast: BREW_UNIT_UPDATED（バッチ内の全ユニット）
-    for (const u of batchUnits) {
-      this.broadcast({ type: "BREW_UNIT_UPDATED", brewUnit: { ...u } });
-    }
+      // 4. broadcast: BREW_UNIT_UPDATED（更新があった全ユニット）
+      for (const id of updatedUnitIds) {
+        const u = this.brewUnits.get(id);
+        if (u) this.broadcast({ type: "BREW_UNIT_UPDATED", brewUnit: { ...u } });
+      }
 
-    // 5. 影響注文のステータス評価
-    for (const orderId of affectedOrderIds) {
-      this.evaluateAndBroadcastOrderStatus(orderId);
-    }
+      // 5. 影響注文のステータス評価
+      for (const orderId of affectedOrderIds) {
+        await this.evaluateAndBroadcastOrderStatus(orderId);
+      }
 
-    return new Response(null, { status: 200 });
+      return new Response(null, { status: 200 });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -551,7 +589,7 @@ export class OrderDurableObject implements DurableObject {
    * 紐付き BrewUnit（必然的に ready のみ）を確認し、全杯揃っていれば orders.status を ready に遷移。
    * brewing 遷移は DB には持たせず、Cashier フロントエンドが仮想計算で表現する。
    */
-  private evaluateOrderStatus(orderId: string): void {
+  private async evaluateOrderStatus(orderId: string): Promise<void> {
     const order = this.orders.get(orderId);
     if (!order || order.status === "cancelled" || order.status === "completed") return;
 
@@ -564,13 +602,14 @@ export class OrderDurableObject implements DurableObject {
     );
 
     if (allReady && order.status !== "ready") {
-      // 非同期で DB 更新 + broadcast（fire-and-forget; DO シングルスレッドなので競合なし）
-      void this.transitionStatus(orderId, "ready", ["pending", "brewing"]);
+      // D1 更新失敗時はリトライ後に throw され、呼び出し元のリクエストが 5xx で失敗する。
+      // クライアント側の再試行に委ねる（ここで握り潰すと brew_units と orders.status が乖離するため）。
+      await this.transitionStatus(orderId, "ready", ["pending", "brewing"]);
     }
   }
 
-  private evaluateAndBroadcastOrderStatus(orderId: string): void {
-    this.evaluateOrderStatus(orderId);
+  private async evaluateAndBroadcastOrderStatus(orderId: string): Promise<void> {
+    await this.evaluateOrderStatus(orderId);
   }
 
   // ---------------------------------------------------------------------------

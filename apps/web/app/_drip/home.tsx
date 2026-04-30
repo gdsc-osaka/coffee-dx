@@ -105,8 +105,8 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof menuItemId !== "string" || !menuItemId || count < 1) {
           return { ok: false, error: "入力値が不正です" };
         }
-        await callOrderDO(stub, "/do/brew-units", {
-          body: { menuItemId, count, businessDate: eventId },
+        await callOrderDO(stub, eventId, "/do/brew-units", {
+          body: { menuItemId, count },
         });
         return { ok: true, intent };
       }
@@ -117,6 +117,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         }
         await callOrderDO(
           stub,
+          eventId,
           `/do/brew-units/batch/${encodeURIComponent(batchId)}/complete`,
         );
         return { ok: true, intent };
@@ -128,6 +129,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         }
         await callOrderDO(
           stub,
+          eventId,
           `/do/brew-units/batch/${encodeURIComponent(batchId)}/cancel`,
         );
         return { ok: true, intent };
@@ -139,6 +141,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         }
         await callOrderDO(
           stub,
+          eventId,
           `/do/brew-units/menu/${encodeURIComponent(menuItemId)}/surplus`,
           { method: "DELETE" }
         );

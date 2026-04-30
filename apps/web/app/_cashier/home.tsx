@@ -73,7 +73,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 
   try {
     const stub = getOrderDOStub(context.cloudflare.env, eventId);
-    await callOrderDO(stub, `/do/orders/${encodeURIComponent(orderId)}/close`, {
+    await callOrderDO(stub, eventId, `/do/orders/${encodeURIComponent(orderId)}/close`, {
       method: "POST",
     });
     return { ok: true, orderId };

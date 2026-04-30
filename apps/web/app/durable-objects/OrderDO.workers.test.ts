@@ -55,7 +55,9 @@ describe("OrderDO", () => {
 
   const connectWebSocket = async () => {
     const response = await stub.fetch(
-      new Request(`http://localhost/ws?eventId=${eventId}`, { headers: { Upgrade: "websocket" } }),
+      new Request(`http://localhost/ws?eventId=${eventId}`, {
+        headers: { Upgrade: "websocket", "x-event-id": eventId },
+      }),
     );
     expect(response.status).toBe(101);
     expect(response.webSocket).toBeDefined();
@@ -124,8 +126,8 @@ describe("OrderDO", () => {
     const res = await stub.fetch(
       new Request("http://localhost/do/brew-units", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ menuItemId: "m1", count: 2, businessDate: eventId }),
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 2 }),
       }),
     );
     expect(res.status).toBe(204);
@@ -134,10 +136,11 @@ describe("OrderDO", () => {
     expect(msg.type).toBe("BREW_UNITS_CREATED");
     expect(msg.brewUnits).toHaveLength(2);
     expect(msg.brewUnits[0].status).toBe("brewing");
-    
-    // DB確認
+
+    // DB確認: business_date は body ではなく x-event-id から書き込まれる
     const units = await db.select().from(brewUnits);
     expect(units).toHaveLength(2);
+    expect(units[0].businessDate).toBe(eventId);
   });
 
   it("BrewUnitを完了すると、待機中の注文に紐付けられ、ORDER_UPDATED がブロードキャストされる", async () => {
@@ -171,8 +174,8 @@ describe("OrderDO", () => {
     await stub.fetch(
       new Request("http://localhost/do/brew-units", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ menuItemId: "m1", count: 2, businessDate: eventId }),
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 2 }),
       }),
     );
 
@@ -183,6 +186,7 @@ describe("OrderDO", () => {
     const res = await stub.fetch(
       new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
         method: "POST",
+        headers: { "x-event-id": eventId },
       }),
     );
     expect(res.status).toBe(200);
