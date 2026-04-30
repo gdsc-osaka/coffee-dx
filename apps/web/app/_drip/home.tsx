@@ -462,7 +462,8 @@ function MenuSection({
               注文 <span className="font-black text-stone-700 text-4xl ml-1">{menu.ordered}</span>
             </span>
             <span className="text-xl text-stone-500">
-              抽出中 <span className="font-black text-orange-600 text-4xl ml-1">{menu.brewing}</span>
+              抽出中{" "}
+              <span className="font-black text-orange-600 text-4xl ml-1">{menu.brewing}</span>
             </span>
             <div className="flex items-center gap-2 text-xl text-stone-500">
               完成 <span className="font-black text-emerald-600 text-4xl ml-1">{menu.ready}</span>
@@ -489,7 +490,10 @@ function MenuSection({
         </div>
 
         {/* 新規バッチ開始コントロール (固定エリア) */}
-        <Form method="post" className="flex items-center gap-6 p-6 bg-stone-100 rounded-3xl border-2 border-stone-200">
+        <Form
+          method="post"
+          className="flex items-center gap-6 p-6 bg-stone-100 rounded-3xl border-2 border-stone-200"
+        >
           <input type="hidden" name="intent" value="brew-start" />
           <input type="hidden" name="eventId" value={eventId} />
           <input type="hidden" name="menuItemId" value={menu.menuItemId} />
