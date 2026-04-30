@@ -17,6 +17,17 @@ import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import { isLXPrinterError, type PrinterStatus } from "lx-printer/lx-d02";
 
+export const links: Route.LinksFunction = () => [
+  { rel: "manifest", href: "/manifest-customer.webmanifest" },
+];
+
+export const meta: Route.MetaFunction = () => [
+  { title: "注文管理" },
+  { name: "apple-mobile-web-app-title", content: "注文管理" },
+  { name: "apple-mobile-web-app-status-bar-style", content: "black" },
+  { name: "theme-color", content: "#0c0a09" },
+];
+
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
   const items = await getAvailableMenuItems(db);
