@@ -9,6 +9,7 @@ export class PrinterClient {
   private _printer: LXD02Printer | null = null;
   private _status: ConnectionStatus = "disconnected";
   private _printerStatus: PrinterStatus | null = null;
+  private _connectPromise: Promise<void> | null = null;
   private _onStatusChange:
     | ((status: ConnectionStatus, printerStatus: PrinterStatus | null) => void)
     | null = null;
@@ -37,25 +38,28 @@ export class PrinterClient {
   }
 
   /**
-   * プリンターに接続する
+   * プリンターに接続する。並行呼び出しは同じ Promise を共有する。
    */
-  async connect(): Promise<void> {
-    if (this._status === "connecting") return;
-
-    this.setStatus("connecting");
-
-    try {
-      if (!this._printer) {
-        this._printer = new LXD02Printer({
-          onStatusChange: (s) => this.handlePrinterStatus(s),
-        });
+  connect(): Promise<void> {
+    this._connectPromise ??= (async () => {
+      this.setStatus("connecting");
+      try {
+        if (!this._printer) {
+          this._printer = new LXD02Printer({
+            onStatusChange: (s) => this.handlePrinterStatus(s),
+          });
+        }
+        await this._printer.connect();
+        this.setStatus("connected");
+      } catch (e) {
+        this.setStatus("error");
+        throw e;
+      } finally {
+        this._connectPromise = null;
       }
-      await this._printer.connect();
-      this.setStatus("connected");
-    } catch (e) {
-      this.setStatus("error");
-      throw e;
-    }
+    })();
+
+    return this._connectPromise;
   }
 
   /**
@@ -66,12 +70,10 @@ export class PrinterClient {
       throw new Error("Printer not connected. Call connect() first in a user gesture.");
     }
     if (this._status !== "connected") {
-      // 接続が切れている可能性があるため再接続を試みる
+      // 進行中の connect があれば乗っかる。なければ再接続を試みる。
       try {
-        await this._printer.connect();
-        this.setStatus("connected");
+        await this.connect();
       } catch {
-        this.setStatus("error");
         throw new Error("Printer not connected. Please connect first.");
       }
     }
