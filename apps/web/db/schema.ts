@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** JST 相当（SQLite の datetime 式）。設計どおり `datetime('now', '+9 hours')` */
 const jstNow = sql`(datetime('now', '+9 hours'))`;
@@ -51,9 +51,44 @@ export const orderNumberCounters = sqliteTable("order_number_counters", {
   updatedAt: text("updated_at").notNull().default(jstNow),
 });
 
+/**
+ * 1 レコード = 1 杯の抽出単位。
+ * 抽出中（brewing）は orderItemId = NULL。
+ * 完成（ready）になった瞬間に先着順の注文に紐付ける（遅延バインディング）。
+ */
+export const brewUnits = sqliteTable(
+  "brew_units",
+  {
+    id: text("id").primaryKey(),
+    batchId: text("batch_id").notNull(),
+    menuItemId: text("menu_item_id")
+      .notNull()
+      .references(() => menuItems.id, { onDelete: "restrict" }),
+    /** NULL = 未紐付き（抽出中 or 余剰）。ready になった瞬間に注文へ紐付ける。 */
+    orderItemId: text("order_item_id").references(() => orderItems.id, {
+      onDelete: "set null",
+    }),
+    status: text("status").notNull().default("brewing"),
+    /** 業務日 YYYY-MM-DD。order_number_counters.business_date と同じ命名。 */
+    businessDate: text("business_date").notNull(),
+    createdAt: text("created_at").notNull().default(jstNow),
+    updatedAt: text("updated_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check(
+      "brew_units_status_check",
+      sql`${t.status} IN ('brewing', 'ready')`,
+    ),
+    index("idx_brew_units_menu_date").on(t.menuItemId, t.businessDate),
+    index("idx_brew_units_order_item").on(t.orderItemId),
+    index("idx_brew_units_batch").on(t.batchId),
+  ],
+);
+
 export const schema = {
   menuItems,
   orders,
   orderItems,
   orderNumberCounters,
+  brewUnits,
 };
