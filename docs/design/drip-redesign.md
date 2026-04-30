@@ -108,7 +108,7 @@ type BrewUnitData = {
 |--------|------|------|
 | `POST` | `/do/brew-units` | N 杯分の BrewUnit を一括生成。同一 `batch_id` を付与する（紐付けは行わない） |
 | `POST` | `/do/brew-units/batch/:batchId/complete` | batch_id が一致する `brewing` な BrewUnit を全て `ready` に遷移し、**先着順の注文に紐付ける** |
-| `POST` | `/do/brew-units/batch/:batchId/cancel` | バッチを取り消す。`brewing` の杯は未紐付けなので単に削除するのみ。 |
+| `POST` | `/do/brew-units/batch/:batchId/cancel` | バッチを取り消す。削除対象は `status='brewing' AND order_item_id IS NULL` に限定する。対象外ユニットは触れない（no-op）。 |
 | `DELETE` | `/do/brew-units/batch/:batchId` | batch_id が一致する BrewUnit のうち `order_item_id IS NULL` なものを削除（余剰削除）。紐付き済みは削除不可 |
 
 **`POST /do/brew-units/batch/:batchId/complete` の処理手順（重要：トランザクション必須）**
@@ -126,8 +126,16 @@ type BrewUnitData = {
 **`POST /do/brew-units/batch/:batchId/cancel` の処理手順**
 
 ```
-1. batch_id が一致する全 BrewUnit を削除（brewing のみのはずなので、誰の注文にも影響しない）。
+1. batch_id が一致する BrewUnit のうち status='brewing' AND order_item_id IS NULL のものを取得する。
+   - 0 件の場合（バッチ全体が既に complete 済み、または存在しないバッチ）→ 404 を返す。
+2. 取得した BrewUnit を削除する（DB + インメモリ）。
+3. 削除した BrewUnit ごとに BREW_UNIT_DELETED を broadcast する。
+   ※ status='ready' や order_item_id IS NOT NULL のユニットがバッチ内に混在していても、それらは一切触れない。
 ```
+
+> **備考（不変条件）**: 遅延バインディング設計では brewing ユニットは常に order_item_id = NULL であるため、
+> `status='brewing'` と `order_item_id IS NULL` は論理的に同値。
+> ただし、バグ等で不変条件が壊れた場合の安全網として削除条件に両方を明示する。
 
 `POST /do/brew-units` のリクエストボディ：
 
