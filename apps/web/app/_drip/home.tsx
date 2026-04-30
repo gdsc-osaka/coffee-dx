@@ -115,10 +115,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof batchId !== "string" || !batchId) {
           return { ok: false, error: "batchId が不正です" };
         }
-        await callOrderDO(
-          stub,
-          `/do/brew-units/batch/${encodeURIComponent(batchId)}/complete`,
-        );
+        await callOrderDO(stub, `/do/brew-units/batch/${encodeURIComponent(batchId)}/complete`);
         return { ok: true, intent };
       }
       case "brew-cancel": {
@@ -126,10 +123,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof batchId !== "string" || !batchId) {
           return { ok: false, error: "batchId が不正です" };
         }
-        await callOrderDO(
-          stub,
-          `/do/brew-units/batch/${encodeURIComponent(batchId)}/cancel`,
-        );
+        await callOrderDO(stub, `/do/brew-units/batch/${encodeURIComponent(batchId)}/cancel`);
         return { ok: true, intent };
       }
       case "menu-surplus-decrease": {
@@ -137,11 +131,9 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof menuItemId !== "string" || !menuItemId) {
           return { ok: false, error: "menuItemId が不正です" };
         }
-        await callOrderDO(
-          stub,
-          `/do/brew-units/menu/${encodeURIComponent(menuItemId)}/surplus`,
-          { method: "DELETE" }
-        );
+        await callOrderDO(stub, `/do/brew-units/menu/${encodeURIComponent(menuItemId)}/surplus`, {
+          method: "DELETE",
+        });
         return { ok: true, intent };
       }
       default:
@@ -169,9 +161,7 @@ export default function DripHome({
   const navigation = useNavigation();
 
   const [ordersById, setOrdersById] = useState<Record<string, OrderData>>({});
-  const [brewUnitsById, setBrewUnitsById] = useState<
-    Record<string, BrewUnitData>
-  >({});
+  const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
   /** メニューごとの開始杯数入力 */
   const [countByMenu, setCountByMenu] = useState<Record<string, number>>({});
 
@@ -190,9 +180,7 @@ export default function DripHome({
     const connect = () => {
       if (unmounted) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(
-        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
-      );
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
 
       socket.onopen = () => {
         retryCountRef.current = 0;
@@ -226,10 +214,7 @@ export default function DripHome({
             setOrdersById((prev) => {
               const existing = prev[msg.orderId];
               if (!existing) return prev;
-              if (
-                msg.status === "completed" ||
-                msg.status === "cancelled"
-              ) {
+              if (msg.status === "completed" || msg.status === "cancelled") {
                 const { [msg.orderId]: _removed, ...rest } = prev;
                 return rest;
               }
@@ -286,8 +271,7 @@ export default function DripHome({
 
     return () => {
       unmounted = true;
-      if (reconnectTimeoutRef.current)
-        window.clearTimeout(reconnectTimeoutRef.current);
+      if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
       if (socket) socket.close();
     };
   }, [eventId]);
@@ -318,9 +302,7 @@ export default function DripHome({
         const menuItemName =
           menus.find((m) => m.id === menuItemId)?.name ??
           units[0]?.menuItemName ??
-          allOrders
-            .flatMap((o) => o.items)
-            .find((i) => i.menuItemId === menuItemId)?.name ??
+          allOrders.flatMap((o) => o.items).find((i) => i.menuItemId === menuItemId)?.name ??
           menuItemId;
 
         // 注文杯数: アクティブ注文の合計
@@ -332,9 +314,7 @@ export default function DripHome({
         const brewing = units.filter((u) => u.status === "brewing").length;
         const ready = units.filter((u) => u.status === "ready").length;
         // 余剰 = ready かつ未紐付き
-        const surplus = units.filter(
-          (u) => u.status === "ready" && u.orderItemId === null,
-        ).length;
+        const surplus = units.filter((u) => u.status === "ready" && u.orderItemId === null).length;
 
         // バッチ単位で集計
         const batchMap = new Map<string, BrewUnitData[]>();
@@ -347,8 +327,7 @@ export default function DripHome({
           .map(([batchId, batchUnits]) => ({
             batchId,
             count: batchUnits.length,
-            linkedCount: batchUnits.filter((u) => u.orderItemId !== null)
-              .length,
+            linkedCount: batchUnits.filter((u) => u.orderItemId !== null).length,
             status: batchUnits.every((u) => u.status === "ready")
               ? ("ready" as const)
               : ("brewing" as const),
@@ -372,12 +351,9 @@ export default function DripHome({
   const isEmpty = isSnapshotLoaded && menuSummaries.length === 0;
 
   const isSubmitting = navigation.state === "submitting";
-  const submittingBatchId =
-    isSubmitting ? navigation.formData?.get("batchId") : null;
-  const submittingIntent =
-    isSubmitting ? navigation.formData?.get("intent") : null;
-  const submittingMenuId =
-    isSubmitting ? navigation.formData?.get("menuItemId") : null;
+  const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
+  const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
+  const submittingMenuId = isSubmitting ? navigation.formData?.get("menuItemId") : null;
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -385,9 +361,7 @@ export default function DripHome({
       <header className="bg-white border-b border-stone-200 shrink-0">
         <div className="px-6 py-3.5 flex items-center gap-3">
           <div className="flex flex-col">
-            <h1 className="text-base font-bold text-stone-800 leading-tight">
-              ドリップ係
-            </h1>
+            <h1 className="text-base font-bold text-stone-800 leading-tight">ドリップ係</h1>
             <p className="text-xs text-stone-400 mt-0.5">抽出管理</p>
           </div>
           <div className="ml-auto flex items-center gap-2 text-xs">
@@ -408,13 +382,9 @@ export default function DripHome({
       {/* Content */}
       <div className="flex-1 py-10 space-y-24">
         {!isSnapshotLoaded ? (
-          <p className="px-6 text-sm text-stone-400 animate-pulse">
-            読み込み中...
-          </p>
+          <p className="px-6 text-sm text-stone-400 animate-pulse">読み込み中...</p>
         ) : isEmpty ? (
-          <p className="px-6 text-sm text-stone-400">
-            進行中の注文・抽出はありません
-          </p>
+          <p className="px-6 text-sm text-stone-400">進行中の注文・抽出はありません</p>
         ) : (
           menuSummaries.map((menu) => (
             <MenuSection
@@ -438,9 +408,7 @@ export default function DripHome({
         {actionData && !actionData.ok && (
           <p className="px-6 text-xs text-red-500">{actionData.error}</p>
         )}
-        {connectionError && (
-          <p className="px-6 text-xs text-red-500">{connectionError}</p>
-        )}
+        {connectionError && <p className="px-6 text-xs text-red-500">{connectionError}</p>}
       </div>
     </div>
   );
@@ -470,28 +438,22 @@ function MenuSection({
   const brewingBatches = menu.batches.filter((b) => b.status === "brewing");
 
   const isStartSubmitting =
-    submittingIntent === "brew-start" &&
-    submittingMenuId === menu.menuItemId;
+    submittingIntent === "brew-start" && submittingMenuId === menu.menuItemId;
 
   return (
     <section className="px-6 space-y-3">
       {/* メニューヘッダー */}
       <div className="flex flex-col gap-2 mb-2">
-        <h2 className="text-2xl font-black text-stone-800">
-          {menu.menuItemName}
-        </h2>
+        <h2 className="text-2xl font-black text-stone-800">{menu.menuItemName}</h2>
         <div className="flex flex-wrap items-center gap-6">
           <span className="text-lg text-stone-500">
-            注文{" "}
-            <span className="font-black text-stone-700 text-3xl ml-1">{menu.ordered}</span>
+            注文 <span className="font-black text-stone-700 text-3xl ml-1">{menu.ordered}</span>
           </span>
           <span className="text-lg text-stone-500">
-            抽出中{" "}
-            <span className="font-black text-orange-600 text-3xl ml-1">{menu.brewing}</span>
+            抽出中 <span className="font-black text-orange-600 text-3xl ml-1">{menu.brewing}</span>
           </span>
           <div className="flex items-center gap-2 text-lg text-stone-500">
-            完成{" "}
-            <span className="font-black text-emerald-600 text-3xl ml-1">{menu.ready}</span>
+            完成 <span className="font-black text-emerald-600 text-3xl ml-1">{menu.ready}</span>
             {menu.surplus > 0 && (
               <Form method="post" className="inline-flex ml-2">
                 <input type="hidden" name="intent" value="menu-surplus-decrease" />
@@ -499,7 +461,10 @@ function MenuSection({
                 <input type="hidden" name="menuItemId" value={menu.menuItemId} />
                 <button
                   type="submit"
-                  disabled={submittingIntent === "menu-surplus-decrease" && submittingMenuId === menu.menuItemId}
+                  disabled={
+                    submittingIntent === "menu-surplus-decrease" &&
+                    submittingMenuId === menu.menuItemId
+                  }
                   className="w-10 h-10 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-50 transition-colors leading-none pb-1 font-black text-2xl shadow-sm"
                   title="余剰を1件減らす"
                 >
@@ -514,11 +479,9 @@ function MenuSection({
       {/* 抽出中バッチカード */}
       {brewingBatches.map((batch) => {
         const isCompleting =
-          submittingBatchId === batch.batchId &&
-          submittingIntent === "brew-complete";
+          submittingBatchId === batch.batchId && submittingIntent === "brew-complete";
         const isCancelling =
-          submittingBatchId === batch.batchId &&
-          submittingIntent === "brew-cancel";
+          submittingBatchId === batch.batchId && submittingIntent === "brew-cancel";
 
         return (
           <div
@@ -528,8 +491,7 @@ function MenuSection({
             <span className="w-3 h-3 rounded-full bg-orange-400 animate-pulse shrink-0" />
             <span className="text-xl font-bold text-stone-700 flex items-center">
               抽出中
-              <span className="text-orange-600 font-black text-4xl mx-2">{batch.count}</span>
-              杯
+              <span className="text-orange-600 font-black text-4xl mx-2">{batch.count}</span>杯
             </span>
             <div className="ml-auto flex gap-4">
               {/* 完了ボタン */}

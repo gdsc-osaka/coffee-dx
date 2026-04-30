@@ -110,23 +110,36 @@ export function OrderStatusCard({
                 <li key={item.id} className="flex flex-col gap-1 text-sm">
                   <div className="flex justify-between">
                     <span className="text-stone-700 font-medium">{item.name ?? "商品"}</span>
-                    <span className="text-stone-500 tabular-nums font-medium">×{item.quantity}</span>
+                    <span className="text-stone-500 tabular-nums font-medium">
+                      ×{item.quantity}
+                    </span>
                   </div>
                   {/* Virtual Status Display */}
-                  {(item.readyCount !== undefined || item.brewingCount !== undefined || item.pendingCount !== undefined) && (
+                  {(item.readyCount !== undefined ||
+                    item.brewingCount !== undefined ||
+                    item.pendingCount !== undefined) && (
                     <div className="flex flex-wrap gap-1">
                       {Array.from({ length: item.readyCount || 0 }).map((_, i) => (
-                        <span key={`ready-${i}`} className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">
+                        <span
+                          key={`ready-${i}`}
+                          className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold"
+                        >
                           ■ 完成
                         </span>
                       ))}
                       {Array.from({ length: item.brewingCount || 0 }).map((_, i) => (
-                        <span key={`brewing-${i}`} className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold">
+                        <span
+                          key={`brewing-${i}`}
+                          className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold"
+                        >
                           □ 抽出中
                         </span>
                       ))}
                       {Array.from({ length: item.pendingCount || 0 }).map((_, i) => (
-                        <span key={`pending-${i}`} className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded font-bold">
+                        <span
+                          key={`pending-${i}`}
+                          className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded font-bold"
+                        >
                           □ 未着手
                         </span>
                       ))}

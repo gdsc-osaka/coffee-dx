@@ -210,7 +210,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
 
   const virtualOrders = useMemo(() => {
     const units = Object.values(brewUnitsById);
-    
+
     // 1. メニューごとの brewing 数を集計
     const brewingCounts = new Map<string, number>();
     for (const u of units) {
@@ -221,7 +221,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
 
     // 2. 注文を古い順にソートして描画ステータスを決定
     const sortedOrders = Object.values(ordersById).sort(
-      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.orderNumber - b.orderNumber
+      (a, b) => a.createdAt.localeCompare(b.createdAt) || a.orderNumber - b.orderNumber,
     );
 
     const result: VirtualOrder[] = [];
@@ -235,17 +235,19 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
 
       for (const item of order.items) {
         // 実際に紐付いている ready な杯数
-        const readyCount = units.filter((u) => u.orderItemId === item.id && u.status === "ready").length;
+        const readyCount = units.filter(
+          (u) => u.orderItemId === item.id && u.status === "ready",
+        ).length;
         // まだ必要な杯数
         const neededCount = item.quantity - readyCount;
-        
+
         // 仮想的に割り当て可能な brewing 杯数
         const availableBrewing = brewingCounts.get(item.menuItemId) || 0;
         const virtualBrewingCount = Math.min(neededCount, availableBrewing);
-        
+
         // 残りの brewing 数を減らす
         brewingCounts.set(item.menuItemId, availableBrewing - virtualBrewingCount);
-        
+
         const pendingCount = neededCount - virtualBrewingCount;
 
         if (pendingCount > 0 || virtualBrewingCount > 0) {
@@ -288,20 +290,20 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
   // OrderNumber順でのソート（あるいはcreatedAt順。Cashierは通常OrderNumber順が見やすい）
   const allOrdersSorted = useMemo(
     () => [...virtualOrders].sort((a, b) => a.orderNumber - b.orderNumber),
-    [virtualOrders]
+    [virtualOrders],
   );
 
   const pendingOrders = useMemo(
     () => allOrdersSorted.filter((order) => order.status === "pending"),
-    [allOrdersSorted]
+    [allOrdersSorted],
   );
   const brewingOrders = useMemo(
     () => allOrdersSorted.filter((order) => order.status === "brewing"),
-    [allOrdersSorted]
+    [allOrdersSorted],
   );
   const readyOrders = useMemo(
     () => allOrdersSorted.filter((order) => order.status === "ready"),
-    [allOrdersSorted]
+    [allOrdersSorted],
   );
 
   const submittingOrderId =

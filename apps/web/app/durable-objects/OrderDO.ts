@@ -94,9 +94,7 @@ export class OrderDurableObject implements DurableObject {
     }
 
     // DELETE /do/brew-units/menu/:menuId/surplus  →  メニューごとの余剰削除（1件ずつ）
-    const surplusMatch = url.pathname.match(
-      /^\/do\/brew-units\/menu\/([^/]+)\/surplus$/,
-    );
+    const surplusMatch = url.pathname.match(/^\/do\/brew-units\/menu\/([^/]+)\/surplus$/);
     if (request.method === "DELETE" && surplusMatch) {
       return this.handleMenuSurplusDecrease(surplusMatch[1]);
     }
@@ -531,11 +529,7 @@ export class OrderDurableObject implements DurableObject {
 
     const targetUnit = targetUnits[0];
 
-    await this.writeWithRetry(() =>
-      db
-        .delete(brewUnits)
-        .where(eq(brewUnits.id, targetUnit.id)),
-    );
+    await this.writeWithRetry(() => db.delete(brewUnits).where(eq(brewUnits.id, targetUnit.id)));
 
     this.brewUnits.delete(targetUnit.id);
     this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: targetUnit.id });
@@ -612,7 +606,7 @@ export class OrderDurableObject implements DurableObject {
 
     if (targetStatus === "completed" || targetStatus === "cancelled") {
       this.orders.delete(orderId);
-      
+
       const linkedUnits = Array.from(this.brewUnits.values()).filter((u) =>
         order.items.some((item) => item.id === u.orderItemId),
       );
