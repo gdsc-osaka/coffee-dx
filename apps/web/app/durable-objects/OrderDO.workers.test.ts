@@ -93,7 +93,9 @@ describe("OrderDO", () => {
     status: "pending" | "brewing" | "ready" | "completed" | "cancelled",
   ) => {
     const now = isoNow();
-    return db.insert(orders).values([{ id, orderNumber, status, createdAt: now, updatedAt: now }]);
+    return db
+      .insert(orders)
+      .values([{ id, businessDate: eventId, orderNumber, status, createdAt: now, updatedAt: now }]);
   };
 
   const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
@@ -257,7 +259,6 @@ describe("OrderDO", () => {
     await db.insert(brewUnits).values([
       {
         id: "u-ready",
-        businessDate: "2026-05-01",
         batchId: "b-old",
         menuItemId: "m1",
         status: "ready",
