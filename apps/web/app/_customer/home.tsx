@@ -21,6 +21,7 @@ export const links: Route.LinksFunction = () => [
 ];
 
 export const meta: Route.MetaFunction = () => [
+  { title: "注文管理" },
   { name: "apple-mobile-web-app-title", content: "注文管理" },
   { name: "apple-mobile-web-app-status-bar-style", content: "black" },
   { name: "theme-color", content: "#0c0a09" },

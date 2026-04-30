@@ -1,8 +1,8 @@
 {
   "name": "コーヒー愛好会 調理管理",
   "short_name": "調理管理",
-  "start_url": "/drip",
-  "scope": "/drip",
+  "start_url": "/drip/",
+  "scope": "/drip/",
   "display": "standalone",
   "background_color": "#fafaf9",
   "theme_color": "#ffffff",

@@ -1,8 +1,8 @@
 {
   "name": "コーヒー愛好会 注文管理",
   "short_name": "注文管理",
-  "start_url": "/order",
-  "scope": "/order",
+  "start_url": "/order/",
+  "scope": "/order/",
   "display": "standalone",
   "background_color": "#0c0a09",
   "theme_color": "#0c0a09",
