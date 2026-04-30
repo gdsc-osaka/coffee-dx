@@ -121,12 +121,8 @@
           "name": "order_items_order_id_orders_id_fk",
           "tableFrom": "order_items",
           "tableTo": "orders",
-          "columnsFrom": [
-            "order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["order_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -134,12 +130,8 @@
           "name": "order_items_menu_item_id_menu_items_id_fk",
           "tableFrom": "order_items",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "menu_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["menu_item_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -234,17 +226,12 @@
       "indexes": {
         "orders_order_number_unique": {
           "name": "orders_order_number_unique",
-          "columns": [
-            "order_number"
-          ],
+          "columns": ["order_number"],
           "isUnique": true
         },
         "orders_created_at_id_idx": {
           "name": "orders_created_at_id_idx",
-          "columns": [
-            "created_at",
-            "id"
-          ],
+          "columns": ["created_at", "id"],
           "isUnique": false
         }
       },
