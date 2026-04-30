@@ -97,7 +97,7 @@ describe("OrderDO", () => {
         businessDate: eventId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      }
+      },
     ]);
 
     const ws = await connectWebSocket();
@@ -198,8 +198,8 @@ describe("OrderDO", () => {
     expect(completedUnits[1].status).toBe("ready");
 
     // 1杯は o1 に紐づき、もう1杯は NULL のまま
-    const linked = completedUnits.filter(u => u.orderItemId === "i1");
-    const unlinked = completedUnits.filter(u => u.orderItemId === null);
+    const linked = completedUnits.filter((u) => u.orderItemId === "i1");
+    const unlinked = completedUnits.filter((u) => u.orderItemId === null);
     expect(linked).toHaveLength(1);
     expect(unlinked).toHaveLength(1);
 
