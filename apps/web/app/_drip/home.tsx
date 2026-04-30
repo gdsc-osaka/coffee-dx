@@ -357,9 +357,13 @@ export default function DripHome({
         };
       })
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
-  }, [ordersById, brewUnitsById]);
+  }, [menus, ordersById, brewUnitsById]);
 
-  const isEmpty = isSnapshotLoaded && menuSummaries.length === 0;
+  const isEmpty =
+    isSnapshotLoaded &&
+    menuSummaries.every(
+      (menu) => menu.ordered === 0 && menu.brewing === 0 && menu.ready === 0,
+    );
 
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
