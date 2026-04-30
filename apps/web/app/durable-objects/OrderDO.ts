@@ -417,7 +417,13 @@ export class OrderDurableObject implements DurableObject {
         db
           .update(brewUnits)
           .set({ status: "ready", updatedAt: now })
-          .where(and(eq(brewUnits.batchId, batchId), eq(brewUnits.status, "brewing"))),
+          .where(
+            and(
+              eq(brewUnits.businessDate, this.eventId),
+              eq(brewUnits.batchId, batchId),
+              eq(brewUnits.status, "brewing"),
+            ),
+          ),
       );
       for (const u of batchUnits) {
         u.status = "ready";

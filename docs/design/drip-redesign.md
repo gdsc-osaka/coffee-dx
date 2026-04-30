@@ -241,10 +241,10 @@ type BrewBatchSummary = {
 
 #### カード挙動
 
-1. ドリッパーが杯数を選んで「開始」→ `POST /do/brew-units { businessDate, menuItemId, count }` → BrewUnit N 件生成 → `BREW_UNITS_CREATED` broadcast → 全画面に新しいバッチカードが出現
+1. ドリッパーが杯数を選んで「開始」→ `POST /do/brew-units`（header: `x-event-id`, body: `{ menuItemId, count }`）→ BrewUnit N 件生成 → `BREW_UNITS_CREATED` broadcast → 全画面に新しいバッチカードが出現
 2. 「完了」ボタン → `POST /do/brew-units/batch/:batchId/complete` → `BREW_UNIT_UPDATED` × N broadcast → バッチ内の全 brewing を一括で ready に遷移し、古い注文に紐付ける。完成数がインクリメントされる。
 3. 「取り消し」ボタン → `POST /do/brew-units/batch/:batchId/cancel` → brewing ユニットを全削除 → `BREW_UNIT_DELETED` × N broadcast → カードが消滅。（誰も紐付いていないので注文には影響しない）
-4. 「余剰削除」ボタン（`order_item_id IS NULL` な杯を含むバッチのみ表示）→ `DELETE /do/brew-units/batch/:batchId` → `BREW_UNIT_DELETED` × N broadcast → 未紐付き杯のみ削除。紐付き済みの杯は残る
+4. 「余剰削除」ボタン（`order_item_id IS NULL` な杯があるメニューで表示）→ `DELETE /do/brew-units/menu/:menuId/surplus` → `BREW_UNIT_DELETED` × N broadcast → そのメニューの未紐付き杯のみ削除。紐付き済みの杯は残る
 
 #### ステータス表示レイアウト（1 メニュー種別あたり）
 

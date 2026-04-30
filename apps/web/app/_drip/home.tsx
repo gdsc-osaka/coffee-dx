@@ -145,7 +145,7 @@ export async function action({ request, context }: Route.ActionArgs) {
           stub,
           eventId,
           `/do/brew-units/menu/${encodeURIComponent(menuItemId)}/surplus`,
-          { method: "DELETE" }
+          { method: "DELETE" },
         );
         return { ok: true, intent };
       }
@@ -361,7 +361,9 @@ export default function DripHome({
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
   }, [ordersById, brewUnitsById, menus]);
 
-  const isEmpty = isSnapshotLoaded && menuSummaries.length === 0;
+  const isEmpty =
+    isSnapshotLoaded &&
+    menuSummaries.every((menu) => menu.ordered === 0 && menu.brewing === 0 && menu.ready === 0);
 
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
