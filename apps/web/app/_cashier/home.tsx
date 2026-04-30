@@ -53,6 +53,9 @@ type VirtualOrderItem = CashierOrderItem & {
 
 type VirtualOrder = Omit<CashierOrder, "items"> & {
   items: VirtualOrderItem[];
+  // status は UI 配置用の仮想ステータス、serverStatus は OrderDO/D1 の実ステータス。
+  // 完了アクションは serverStatus === "ready" の注文にのみ許可する（DO の /close は ready 以外で 409）。
+  serverStatus: OrderStatus;
 };
 
 export async function loader(_args: Route.LoaderArgs) {
@@ -280,6 +283,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       result.push({
         ...order,
         status: displayStatus,
+        serverStatus: order.status,
         items: virtualItems,
       });
     }
@@ -359,6 +363,9 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                   <div className="w-6 shrink-0" />
                   {readyOrders.map((order) => {
                     const isSubmittingThisOrder = submittingOrderId === order.id;
+                    // 仮想 ready のみで実 status が pending/brewing の場合、サーバ側 /close は 409 になる。
+                    // ボタンは出さず、ドリップ完了の確定を待つプレースホルダを表示する。
+                    const canClose = order.serverStatus === "ready";
                     return (
                       <OrderStatusCard
                         key={order.id}
@@ -374,14 +381,19 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                           brewingCount: item.brewingCount,
                           pendingCount: item.pendingCount,
                         }))}
-                        action={{
-                          label: "完了",
-                          isSubmitting: isSubmittingThisOrder,
-                          fields: [
-                            { name: "orderId", value: order.id },
-                            { name: "eventId", value: eventId },
-                          ],
-                        }}
+                        action={
+                          canClose
+                            ? {
+                                label: "完了",
+                                isSubmitting: isSubmittingThisOrder,
+                                fields: [
+                                  { name: "orderId", value: order.id },
+                                  { name: "eventId", value: eventId },
+                                ],
+                              }
+                            : undefined
+                        }
+                        actionPlaceholder={canClose ? undefined : "ドリップ完了後に提供できます"}
                       />
                     );
                   })}

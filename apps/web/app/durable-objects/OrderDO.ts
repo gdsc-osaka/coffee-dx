@@ -96,12 +96,6 @@ export class OrderDurableObject implements DurableObject {
       return this.handleBatchCancel(cancelMatch[1]);
     }
 
-    // DELETE /do/brew-units/batch/:batchId  →  余剰削除（orderItemId IS NULL のみ）
-    const discardMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)$/);
-    if (request.method === "DELETE" && discardMatch) {
-      return this.handleBatchDiscard(discardMatch[1]);
-    }
-
     // DELETE /do/brew-units/menu/:menuId/surplus  →  メニューごとの余剰削除（1件ずつ）
     const surplusMatch = url.pathname.match(/^\/do\/brew-units\/menu\/([^/]+)\/surplus$/);
     if (request.method === "DELETE" && surplusMatch) {
@@ -132,6 +126,13 @@ export class OrderDurableObject implements DurableObject {
   private async initialize(): Promise<void> {
     if (this.initialized) return;
 
+    // fetch() で x-event-id を必ず先にセットしてから initialize() を呼ぶ前提。
+    // 別 event の brew_units まで取り込まないよう、businessDate スコープ用に確定させる。
+    const eventId = this.eventId;
+    if (!eventId) {
+      throw new Error("[OrderDO] initialize called before eventId was set");
+    }
+
     if (!this.initPromise) {
       this.initPromise = this.state.blockConcurrencyWhile(async () => {
         const db = createDb(this.env.DB);
@@ -158,11 +159,18 @@ export class OrderDurableObject implements DurableObject {
         // --- menu name lookup（orders + brew_units 両方で使う）---
         const menuIdSet = new Set(allItems.map((i) => i.menuItemId));
 
-        // brew_units の menuItemId も先読みするため、brew_units も先に取得
+        // brew_units の menuItemId も先読みするため、brew_units も先に取得。
+        // DO は event 単位（idFromName('event-${eventId}')）で分離されるが、D1 は event 横断で
+        // 共有のため、businessDate で必ず絞らないと再起動時に別 event のユニットを取り込んでしまう。
         const activeBrewUnitsRaw = await db
           .select()
           .from(brewUnits)
-          .where(inArray(brewUnits.status, ["brewing", "ready"]));
+          .where(
+            and(
+              inArray(brewUnits.status, ["brewing", "ready"]),
+              eq(brewUnits.businessDate, eventId),
+            ),
+          );
 
         for (const u of activeBrewUnitsRaw) menuIdSet.add(u.menuItemId);
 
@@ -197,6 +205,10 @@ export class OrderDurableObject implements DurableObject {
 
         // brew_units をインメモリに展開
         for (const u of activeBrewUnitsRaw) {
+          // SQL 側で businessDate=eventId に絞っているが、メモリ展開でも同条件を再確認する。
+          // 将来クエリ条件が変わっても別 event のユニットが DO 内に紛れ込まないための防御深度。
+          if (u.businessDate !== eventId) continue;
+
           // 提供済み（完了/キャンセル済みの注文に紐づく）brew_unit は DO の管理対象外とする
           if (u.orderItemId && !activeOrderItemsSet.has(u.orderItemId)) {
             continue;
@@ -471,15 +483,19 @@ export class OrderDurableObject implements DurableObject {
         }
       }
 
-      // 4. broadcast: BREW_UNIT_UPDATED（更新があった全ユニット）
+      // 4. 影響注文のステータス評価（ORDER_UPDATED を先に broadcast）。
+      //    Cashier の virtualOrders は brew_units の ready 数だけで displayStatus=ready を
+      //    決めうるため、BREW_UNIT_UPDATED を先に投げると「クライアントは ready 表示・
+      //    サーバ order.status は pending」の窓ができ、close 押下で 409 になりうる。
+      //    ORDER_UPDATED を先送りすればその窓が発生しない。
+      for (const orderId of affectedOrderIds) {
+        await this.evaluateAndBroadcastOrderStatus(orderId);
+      }
+
+      // 5. broadcast: BREW_UNIT_UPDATED（更新があった全ユニット）
       for (const id of updatedUnitIds) {
         const u = this.brewUnits.get(id);
         if (u) this.broadcast({ type: "BREW_UNIT_UPDATED", brewUnit: { ...u } });
-      }
-
-      // 5. 影響注文のステータス評価
-      for (const orderId of affectedOrderIds) {
-        await this.evaluateAndBroadcastOrderStatus(orderId);
       }
 
       return new Response(null, { status: 200 });
@@ -491,62 +507,42 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   private async handleBatchCancel(batchId: string): Promise<Response> {
-    const db = createDb(this.env.DB);
+    // writeWithRetry の setTimeout バックオフで JS タスクが yield する間に handleBatchComplete
+    // 等が割り込むと、SQL は status='brewing' ガードで残すユニットをメモリ側でスナップショットを
+    // 信じて消してしまい、D1 とメモリ・クライアント表示が乖離する。blockConcurrencyWhile で
+    // スナップショット〜DELETE〜メモリ更新を直列化して TOCTOU を排除する。
+    return this.state.blockConcurrencyWhile(async () => {
+      const db = createDb(this.env.DB);
 
-    // 削除条件: status='brewing' AND order_item_id IS NULL の両方を明示する。
-    // 遅延バインディング設計では brewing ユニットは常に orderItemId=null のため論理的に同値だが、
-    // 不変条件が壊れた場合の安全網として両条件を AND で指定し、ready や紐付き済みユニットは一切触れない。
-    const targetUnits = [...this.brewUnits.values()].filter(
-      (u) => u.batchId === batchId && u.status === "brewing" && u.orderItemId === null,
-    );
-    // 0 件: バッチが既に complete 済みか、存在しないバッチ → 404
-    if (targetUnits.length === 0)
-      return new Response("Batch not found or not cancellable", { status: 404 });
+      // 削除条件: status='brewing' AND order_item_id IS NULL の両方を明示する。
+      // 遅延バインディング設計では brewing ユニットは常に orderItemId=null のため論理的に同値だが、
+      // 不変条件が壊れた場合の安全網として両条件を AND で指定し、ready や紐付き済みユニットは一切触れない。
+      const targetUnits = [...this.brewUnits.values()].filter(
+        (u) => u.batchId === batchId && u.status === "brewing" && u.orderItemId === null,
+      );
+      // 0 件: バッチが既に complete 済みか、存在しないバッチ → 404
+      if (targetUnits.length === 0)
+        return new Response("Batch not found or not cancellable", { status: 404 });
 
-    await this.writeWithRetry(() =>
-      db
-        .delete(brewUnits)
-        .where(
-          and(
-            eq(brewUnits.batchId, batchId),
-            eq(brewUnits.status, "brewing"),
-            isNull(brewUnits.orderItemId),
+      await this.writeWithRetry(() =>
+        db
+          .delete(brewUnits)
+          .where(
+            and(
+              eq(brewUnits.batchId, batchId),
+              eq(brewUnits.status, "brewing"),
+              isNull(brewUnits.orderItemId),
+            ),
           ),
-        ),
-    );
+      );
 
-    for (const u of targetUnits) {
-      this.brewUnits.delete(u.id);
-      this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: u.id });
-    }
+      for (const u of targetUnits) {
+        this.brewUnits.delete(u.id);
+        this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: u.id });
+      }
 
-    return new Response(null, { status: 200 });
-  }
-
-  // ---------------------------------------------------------------------------
-  // BrewUnit: 余剰削除（orderItemId IS NULL のみ）
-  // ---------------------------------------------------------------------------
-
-  private async handleBatchDiscard(batchId: string): Promise<Response> {
-    const db = createDb(this.env.DB);
-
-    const targetUnits = [...this.brewUnits.values()].filter(
-      (u) => u.batchId === batchId && u.orderItemId === null,
-    );
-    if (targetUnits.length === 0) return new Response("No surplus units found", { status: 404 });
-
-    await this.writeWithRetry(() =>
-      db
-        .delete(brewUnits)
-        .where(and(eq(brewUnits.batchId, batchId), isNull(brewUnits.orderItemId))),
-    );
-
-    for (const u of targetUnits) {
-      this.brewUnits.delete(u.id);
-      this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: u.id });
-    }
-
-    return new Response(null, { status: 200 });
+      return new Response(null, { status: 200 });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -567,7 +563,25 @@ export class OrderDurableObject implements DurableObject {
 
     const targetUnit = targetUnits[0];
 
-    await this.writeWithRetry(() => db.delete(brewUnits).where(eq(brewUnits.id, targetUnit.id)));
+    // await 中に他リクエストが当該ユニットを紐付け／状態変更する可能性があるため、
+    // DB 側でも business_date / status / order_item_id を再確認して安全に削除する。
+    const result = await this.writeWithRetry(() =>
+      db
+        .delete(brewUnits)
+        .where(
+          and(
+            eq(brewUnits.id, targetUnit.id),
+            eq(brewUnits.businessDate, targetUnit.businessDate),
+            eq(brewUnits.status, "ready"),
+            isNull(brewUnits.orderItemId),
+          ),
+        ),
+    );
+
+    if ((result as D1Result).meta?.changes === 0) {
+      // 別リクエストが先に紐付け／削除した。in-memory も触らず 409 を返す。
+      return new Response("Conflict: surplus unit was modified concurrently", { status: 409 });
+    }
 
     this.brewUnits.delete(targetUnit.id);
     this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: targetUnit.id });

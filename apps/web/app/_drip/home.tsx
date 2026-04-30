@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Form, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
-import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
+import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -91,7 +91,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   const intent = formData.get("intent");
   const eventId = formData.get("eventId");
 
-  if (typeof eventId !== "string" || eventId.length === 0) {
+  // フォーマット検証まで action 内で済ませる（getOrderDOStub は try の外なので、
+  // 不正フォーマットの eventId が来ると 500 になってしまうため）。
+  if (typeof eventId !== "string" || !isValidEventId(eventId)) {
     return { ok: false, error: "eventId が不正です" };
   }
 
@@ -357,7 +359,7 @@ export default function DripHome({
         };
       })
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
-  }, [ordersById, brewUnitsById]);
+  }, [ordersById, brewUnitsById, menus]);
 
   const isEmpty = isSnapshotLoaded && menuSummaries.length === 0;
 

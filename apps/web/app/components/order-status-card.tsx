@@ -26,6 +26,7 @@ type OrderStatusCardProps = {
     isSubmitting?: boolean;
     fields: Array<{ name: string; value: string }>;
   };
+  actionPlaceholder?: string;
   className?: string;
 };
 
@@ -62,6 +63,7 @@ export function OrderStatusCard({
   itemCount,
   items,
   action,
+  actionPlaceholder,
   className,
 }: OrderStatusCardProps) {
   const cfg = statusConfig[status];
@@ -151,7 +153,7 @@ export function OrderStatusCard({
           )}
           {!items || items.length === 0 ? <div className="flex-1" /> : null}
 
-          {action && (
+          {action ? (
             <Form method="post" className="mt-auto">
               {action.fields.map((field) => (
                 <input key={field.name} type="hidden" name={field.name} value={field.value} />
@@ -164,7 +166,9 @@ export function OrderStatusCard({
                 {action.isSubmitting ? "更新中..." : action.label}
               </Button>
             </Form>
-          )}
+          ) : actionPlaceholder ? (
+            <p className="mt-auto py-4 text-center text-xs text-stone-400">{actionPlaceholder}</p>
+          ) : null}
         </CardContent>
       </Card>
     </div>
