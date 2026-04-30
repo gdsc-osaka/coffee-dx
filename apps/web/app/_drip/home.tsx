@@ -361,9 +361,6 @@ export default function DripHome({
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
   }, [ordersById, brewUnitsById, menus]);
 
-  const isEmpty =
-    isSnapshotLoaded &&
-    menuSummaries.every((menu) => menu.ordered === 0 && menu.brewing === 0 && menu.ready === 0);
 
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
@@ -398,8 +395,6 @@ export default function DripHome({
       <div className="flex-1 py-10 space-y-24">
         {!isSnapshotLoaded ? (
           <p className="px-6 text-sm text-stone-400 animate-pulse">読み込み中...</p>
-        ) : isEmpty ? (
-          <p className="px-6 text-sm text-stone-400">進行中の注文・抽出はありません</p>
         ) : (
           menuSummaries.map((menu) => (
             <MenuSection

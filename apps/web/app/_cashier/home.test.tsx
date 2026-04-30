@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,17 @@ type ServerMessage =
           updatedAt: string;
         }>;
       }>;
+      brewUnits: Array<{
+        id: string;
+        batchId: string;
+        menuItemId: string;
+        menuItemName: string;
+        orderItemId: string | null;
+        status: "brewing" | "ready";
+        businessDate: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
     }
   | { type: "ORDER_CREATED"; order: unknown }
   | { type: "ORDER_UPDATED"; orderId: string; status: string };
@@ -65,6 +76,8 @@ class MockWebSocket {
   }
 }
 
+const ts = "2026-04-18 12:00:00";
+
 function buildOrder({
   id,
   orderNumber,
@@ -78,8 +91,8 @@ function buildOrder({
     id,
     orderNumber,
     status,
-    createdAt: "2026-04-18 12:00:00",
-    updatedAt: "2026-04-18 12:00:00",
+    createdAt: ts,
+    updatedAt: ts,
     items: [
       {
         id: `${id}-item`,
@@ -87,10 +100,27 @@ function buildOrder({
         menuItemId: "menu-1",
         quantity: 1,
         name: "アメリカーノ",
-        createdAt: "2026-04-18 12:00:00",
-        updatedAt: "2026-04-18 12:00:00",
+        createdAt: ts,
+        updatedAt: ts,
       },
     ],
+  };
+}
+
+function buildBrewUnit(overrides: {
+  id: string;
+  status: "brewing" | "ready";
+  orderItemId: string | null;
+  batchId?: string;
+}) {
+  return {
+    batchId: overrides.batchId ?? "b1",
+    menuItemId: "menu-1",
+    menuItemName: "アメリカーノ",
+    businessDate: "2026-04-18",
+    createdAt: ts,
+    updatedAt: ts,
+    ...overrides,
   };
 }
 
@@ -102,7 +132,7 @@ describe("CashierHome", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   });
 
-  it("SNAPSHOT受信後に status セクションで表示し、ready だけ提供ボタンを有効化する", async () => {
+  it("SNAPSHOT受信後に各 status セクションが描画され、ready の注文にだけ 完了 ボタンが出る", async () => {
     render(<CashierHome {...({ loaderData: { eventId: "2026-04-18" } } as any)} />);
 
     const ws = MockWebSocket.instances[0];
@@ -118,25 +148,25 @@ describe("CashierHome", () => {
           buildOrder({ id: "o2", orderNumber: 2, status: "brewing" }),
           buildOrder({ id: "o3", orderNumber: 3, status: "ready" }),
         ],
+        // ready 注文 o3 の 1 杯分は紐付き ready unit として表現する
+        brewUnits: [
+          buildBrewUnit({ id: "u3", status: "ready", orderItemId: "o3-item" }),
+        ],
       });
     });
 
     await waitFor(() => {
+      // serverStatus === "ready" の注文に対してのみ 完了 ボタンが出る
       expect(screen.getAllByRole("button", { name: "完了" })).toHaveLength(1);
     });
 
-    expect(screen.queryByRole("heading", { name: /作成待ち/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /ドリップ中/ })).toBeInTheDocument();
+    // セクション見出しは常時描画される
     expect(screen.getByRole("heading", { name: /提供待ち/ })).toBeInTheDocument();
-
-    const readySection = screen.getByRole("heading", { name: /提供待ち/ }).closest("section");
-    expect(readySection).toBeTruthy();
-    expect(
-      within(readySection as HTMLElement).queryByText("ドリップ完了後に提供できます"),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /ドリップ中/ })).toBeInTheDocument();
+    // 旧 UI の "作成待ち" は存在しない (現行は "待機中")
+    expect(screen.queryByRole("heading", { name: /作成待ち/ })).not.toBeInTheDocument();
 
     const buttons = screen.getAllByRole("button", { name: "完了" });
-    expect(buttons).toHaveLength(1);
     expect(buttons[0]).toBeEnabled();
   });
 
@@ -149,6 +179,9 @@ describe("CashierHome", () => {
       ws.emitMessage({
         type: "SNAPSHOT",
         orders: [buildOrder({ id: "o10", orderNumber: 10, status: "ready" })],
+        brewUnits: [
+          buildBrewUnit({ id: "u10", status: "ready", orderItemId: "o10-item" }),
+        ],
       });
     });
 

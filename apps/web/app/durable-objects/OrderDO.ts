@@ -395,6 +395,9 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   private async handleBatchComplete(batchId: string): Promise<Response> {
+    const eventId = this.eventId;
+    if (!eventId) return new Response("Missing eventId context", { status: 400 });
+
     // バッチ完了→プール作成→紐付けは複数の await を跨ぐ。D1 アクセスは DO の Input Gate
     // の保護外であり、writeWithRetry の setTimeout バックオフでも Gate が開放されるため、
     // 並走する new-order / 別 complete との interleave で割り当てが二重化しうる。
@@ -419,7 +422,7 @@ export class OrderDurableObject implements DurableObject {
           .set({ status: "ready", updatedAt: now })
           .where(
             and(
-              eq(brewUnits.businessDate, this.eventId),
+              eq(brewUnits.businessDate, eventId),
               eq(brewUnits.batchId, batchId),
               eq(brewUnits.status, "brewing"),
             ),
