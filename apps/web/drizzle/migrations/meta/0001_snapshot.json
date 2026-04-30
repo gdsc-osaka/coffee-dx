@@ -70,24 +70,17 @@
       "indexes": {
         "idx_brew_units_menu_date": {
           "name": "idx_brew_units_menu_date",
-          "columns": [
-            "menu_item_id",
-            "business_date"
-          ],
+          "columns": ["menu_item_id", "business_date"],
           "isUnique": false
         },
         "idx_brew_units_order_item": {
           "name": "idx_brew_units_order_item",
-          "columns": [
-            "order_item_id"
-          ],
+          "columns": ["order_item_id"],
           "isUnique": false
         },
         "idx_brew_units_batch": {
           "name": "idx_brew_units_batch",
-          "columns": [
-            "batch_id"
-          ],
+          "columns": ["batch_id"],
           "isUnique": false
         }
       },
@@ -96,12 +89,8 @@
           "name": "brew_units_menu_item_id_menu_items_id_fk",
           "tableFrom": "brew_units",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "menu_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["menu_item_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -109,12 +98,8 @@
           "name": "brew_units_order_item_id_order_items_id_fk",
           "tableFrom": "brew_units",
           "tableTo": "order_items",
-          "columnsFrom": [
-            "order_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["order_item_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -245,12 +230,8 @@
           "name": "order_items_order_id_orders_id_fk",
           "tableFrom": "order_items",
           "tableTo": "orders",
-          "columnsFrom": [
-            "order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["order_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -258,12 +239,8 @@
           "name": "order_items_menu_item_id_menu_items_id_fk",
           "tableFrom": "order_items",
           "tableTo": "menu_items",
-          "columnsFrom": [
-            "menu_item_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["menu_item_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -358,9 +335,7 @@
       "indexes": {
         "orders_order_number_unique": {
           "name": "orders_order_number_unique",
-          "columns": [
-            "order_number"
-          ],
+          "columns": ["order_number"],
           "isUnique": true
         }
       },
