@@ -257,6 +257,7 @@ describe("OrderDO", () => {
     await db.insert(brewUnits).values([
       {
         id: "u-ready",
+        businessDate: "2026-05-01",
         batchId: "b-old",
         menuItemId: "m1",
         status: "ready",

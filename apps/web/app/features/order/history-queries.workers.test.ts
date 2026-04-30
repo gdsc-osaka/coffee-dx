@@ -25,6 +25,7 @@ async function seedOrder(
 ) {
   await db.insert(orders).values({
     id: options.id,
+    businessDate: options.createdAt.slice(0, 10),
     orderNumber: options.orderNumber,
     status: options.status ?? "completed",
     createdAt: options.createdAt,

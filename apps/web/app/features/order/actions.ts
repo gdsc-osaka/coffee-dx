@@ -66,6 +66,7 @@ export async function createOrder(
   await db.batch([
     db.insert(orders).values({
       id: orderId,
+      businessDate,
       orderNumber,
       status: "pending",
       createdAt: now,
