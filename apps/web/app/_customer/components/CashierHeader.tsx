@@ -20,7 +20,7 @@ export function CashierHeader({
           Cashier View
         </p>
         <div className="flex items-center gap-2 text-[10px] text-stone-500">
-          {printerStatusData && (
+          {printerStatus === "connected" && printerStatusData && (
             <div className="flex items-center gap-1">
               {printerStatusData.isOutOfPaper ? (
                 <AlertCircle className="size-3 text-red-500 animate-pulse" />
@@ -30,7 +30,11 @@ export function CashierHeader({
                 <Battery className="size-3 text-emerald-500" />
               )}
               <span className={printerStatusData.isOutOfPaper ? "text-red-500" : ""}>
-                {printerStatusData.isOutOfPaper ? "NO PAPER" : `${printerStatusData.battery}%`}
+                {printerStatusData.isOutOfPaper
+                  ? "NO PAPER"
+                  : printerStatusData.battery !== undefined
+                    ? `${printerStatusData.battery}%`
+                    : "--"}
               </span>
             </div>
           )}

@@ -14,7 +14,7 @@ import { receiptGenerator } from "~/features/printer/receipt-generator";
 import { CashierHeader } from "./components/CashierHeader";
 import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
-import type { PrinterStatus } from "lx-printer/lx-d02";
+import { isLXPrinterError, type PrinterStatus } from "lx-printer/lx-d02";
 
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
@@ -127,7 +127,12 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
           });
           await printerClient.print(canvas);
         } catch (e) {
-          console.error("Auto print failed:", e);
+          if (isLXPrinterError(e) && e.code === "ALREADY_PRINTING") {
+            // 別の印刷ジョブが進行中だったため二重印刷を回避。手動で再印刷可能なため致命的ではない
+            console.warn("Auto print skipped: printer is already printing");
+          } else {
+            console.error("Auto print failed:", e);
+          }
         }
       };
       printAuto();
@@ -165,7 +170,11 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       });
       await printerClient.print(canvas);
     } catch (e) {
-      alert("再印刷に失敗しました。プリンターの状態を確認してください。");
+      if (isLXPrinterError(e) && e.code === "ALREADY_PRINTING") {
+        alert("プリンターが印刷中です。完了後にもう一度お試しください。");
+      } else {
+        alert("再印刷に失敗しました。プリンターの状態を確認してください。");
+      }
       console.error("Reprint failed:", e);
     }
   };
@@ -291,9 +300,13 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
               <Button
                 type="submit"
                 className="w-full h-14 text-2xl font-black bg-emerald-600 hover:bg-emerald-500 text-white border-0 rounded-2xl"
-                disabled={isSubmitting}
+                disabled={isSubmitting || printerStatusData?.isPrinting}
               >
-                {isSubmitting ? "処理中..." : "会計を確定する"}
+                {isSubmitting
+                  ? "処理中..."
+                  : printerStatusData?.isPrinting
+                    ? "印刷中..."
+                    : "会計を確定する"}
               </Button>
             </Form>
             {isAutoPrintEnabled && (
@@ -349,10 +362,10 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                   variant="outline"
                   className="w-full h-12 text-stone-600"
                   onClick={handleReprint}
-                  disabled={printerStatus === "connecting"}
+                  disabled={printerStatus === "connecting" || printerStatusData?.isPrinting}
                 >
                   <Printer className="size-4 mr-2" />
-                  再印刷
+                  {printerStatusData?.isPrinting ? "印刷中..." : "再印刷"}
                 </Button>
                 <Button
                   type="button"
