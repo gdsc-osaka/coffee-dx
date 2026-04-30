@@ -116,4 +116,17 @@ describe("createOrder", () => {
     expect(order.createdAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
     expect(order.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
+
+  it("戻り値の createdAt は D1 に保存された JST 文字列と一致する Date を返す", async () => {
+    const d1Db = createDb(env.DB);
+    const cartItems = [{ menuItemId: "menu-1", name: "ブレンドコーヒー", price: 400, quantity: 1 }];
+
+    const { createdAt } = await createOrder(d1Db, mockEnv, cartItems);
+
+    const [order] = await db.select().from(orders);
+    expect(createdAt).toBeInstanceOf(Date);
+    // 受付番号票が常に同じ時刻を表示できるよう、D1 の文字列値と Date が秒精度で一致することを保証する
+    const expected = new Date(`${order.createdAt.replace(" ", "T")}+09:00`);
+    expect(createdAt.getTime()).toBe(expected.getTime());
+  });
 });

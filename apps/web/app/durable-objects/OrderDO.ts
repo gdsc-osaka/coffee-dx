@@ -76,25 +76,19 @@ export class OrderDurableObject implements DurableObject {
     }
 
     // POST /do/brew-units/batch/:batchId/complete  →  完了 + 紐付け
-    const completeMatch = url.pathname.match(
-      /^\/do\/brew-units\/batch\/([^/]+)\/complete$/,
-    );
+    const completeMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)\/complete$/);
     if (request.method === "POST" && completeMatch) {
       return this.handleBatchComplete(completeMatch[1]);
     }
 
     // POST /do/brew-units/batch/:batchId/cancel  →  brewing ユニット削除（注文に影響なし）
-    const cancelMatch = url.pathname.match(
-      /^\/do\/brew-units\/batch\/([^/]+)\/cancel$/,
-    );
+    const cancelMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)\/cancel$/);
     if (request.method === "POST" && cancelMatch) {
       return this.handleBatchCancel(cancelMatch[1]);
     }
 
     // DELETE /do/brew-units/batch/:batchId  →  余剰削除（orderItemId IS NULL のみ）
-    const discardMatch = url.pathname.match(
-      /^\/do\/brew-units\/batch\/([^/]+)$/,
-    );
+    const discardMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)$/);
     if (request.method === "DELETE" && discardMatch) {
       return this.handleBatchDiscard(discardMatch[1]);
     }
@@ -113,10 +107,7 @@ export class OrderDurableObject implements DurableObject {
       const [, orderId, action] = orderMatch;
       switch (action) {
         case "cancel":
-          return this.transitionStatus(orderId, "cancelled", [
-            "pending",
-            "brewing",
-          ]);
+          return this.transitionStatus(orderId, "cancelled", ["pending", "brewing"]);
         case "close":
           return this.transitionStatus(orderId, "completed", ["ready"]);
       }
@@ -180,8 +171,7 @@ export class OrderDurableObject implements DurableObject {
         // orders をインメモリに展開
         const itemsByOrderId = new Map<string, OrderItemData[]>();
         for (const item of allItems) {
-          if (!itemsByOrderId.has(item.orderId))
-            itemsByOrderId.set(item.orderId, []);
+          if (!itemsByOrderId.has(item.orderId)) itemsByOrderId.set(item.orderId, []);
           itemsByOrderId.get(item.orderId)!.push({
             ...item,
             name: menuNameById.get(item.menuItemId),
@@ -285,10 +275,7 @@ export class OrderDurableObject implements DurableObject {
       // orderItemId IS NULL かつ ready のユニット（createdAt 昇順）
       const candidates = [...this.brewUnits.values()]
         .filter(
-          (u) =>
-            u.menuItemId === item.menuItemId &&
-            u.status === "ready" &&
-            u.orderItemId === null,
+          (u) => u.menuItemId === item.menuItemId && u.status === "ready" && u.orderItemId === null,
         )
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
         .slice(0, needed);
@@ -298,9 +285,7 @@ export class OrderDurableObject implements DurableObject {
           db
             .update(brewUnits)
             .set({ orderItemId: item.id, updatedAt: now })
-            .where(
-              and(eq(brewUnits.id, unit.id), isNull(brewUnits.orderItemId)),
-            ),
+            .where(and(eq(brewUnits.id, unit.id), isNull(brewUnits.orderItemId))),
         );
         unit.orderItemId = item.id;
         unit.updatedAt = now;
@@ -327,8 +312,7 @@ export class OrderDurableObject implements DurableObject {
     };
     const { menuItemId, count, businessDate } = body;
 
-    if (!menuItemId || !count || count < 1)
-      return new Response("Invalid body", { status: 400 });
+    if (!menuItemId || !count || count < 1) return new Response("Invalid body", { status: 400 });
 
     const db = createDb(this.env.DB);
 
@@ -396,12 +380,7 @@ export class OrderDurableObject implements DurableObject {
       db
         .update(brewUnits)
         .set({ status: "ready", updatedAt: now })
-        .where(
-          and(
-            eq(brewUnits.batchId, batchId),
-            eq(brewUnits.status, "brewing"),
-          ),
-        ),
+        .where(and(eq(brewUnits.batchId, batchId), eq(brewUnits.status, "brewing"))),
     );
     for (const u of batchUnits) {
       u.status = "ready";
@@ -482,10 +461,7 @@ export class OrderDurableObject implements DurableObject {
     // 遅延バインディング設計では brewing ユニットは常に orderItemId=null のため論理的に同値だが、
     // 不変条件が壊れた場合の安全網として両条件を AND で指定し、ready や紐付き済みユニットは一切触れない。
     const targetUnits = [...this.brewUnits.values()].filter(
-      (u) =>
-        u.batchId === batchId &&
-        u.status === "brewing" &&
-        u.orderItemId === null,
+      (u) => u.batchId === batchId && u.status === "brewing" && u.orderItemId === null,
     );
     // 0 件: バッチが既に complete 済みか、存在しないバッチ → 404
     if (targetUnits.length === 0)
@@ -521,15 +497,12 @@ export class OrderDurableObject implements DurableObject {
     const targetUnits = [...this.brewUnits.values()].filter(
       (u) => u.batchId === batchId && u.orderItemId === null,
     );
-    if (targetUnits.length === 0)
-      return new Response("No surplus units found", { status: 404 });
+    if (targetUnits.length === 0) return new Response("No surplus units found", { status: 404 });
 
     await this.writeWithRetry(() =>
       db
         .delete(brewUnits)
-        .where(
-          and(eq(brewUnits.batchId, batchId), isNull(brewUnits.orderItemId)),
-        ),
+        .where(and(eq(brewUnits.batchId, batchId), isNull(brewUnits.orderItemId))),
     );
 
     for (const u of targetUnits) {
@@ -580,23 +553,14 @@ export class OrderDurableObject implements DurableObject {
    */
   private evaluateOrderStatus(orderId: string): void {
     const order = this.orders.get(orderId);
-    if (
-      !order ||
-      order.status === "cancelled" ||
-      order.status === "completed"
-    )
-      return;
+    if (!order || order.status === "cancelled" || order.status === "completed") return;
 
     const linkedReady = [...this.brewUnits.values()].filter(
-      (u) =>
-        order.items.some((item) => item.id === u.orderItemId) &&
-        u.status === "ready",
+      (u) => order.items.some((item) => item.id === u.orderItemId) && u.status === "ready",
     );
 
     const allReady = order.items.every(
-      (item) =>
-        linkedReady.filter((u) => u.orderItemId === item.id).length >=
-        item.quantity,
+      (item) => linkedReady.filter((u) => u.orderItemId === item.id).length >= item.quantity,
     );
 
     if (allReady && order.status !== "ready") {
@@ -624,10 +588,7 @@ export class OrderDurableObject implements DurableObject {
     if (order.status === targetStatus) return new Response(null, { status: 200 });
 
     if (!expectedStatuses.includes(order.status)) {
-      return new Response(
-        `Conflict: Order status is currently ${order.status}`,
-        { status: 409 },
-      );
+      return new Response(`Conflict: Order status is currently ${order.status}`, { status: 409 });
     }
 
     const newUpdatedAt = new Date().toISOString();
@@ -636,9 +597,7 @@ export class OrderDurableObject implements DurableObject {
       db
         .update(orders)
         .set({ status: targetStatus, updatedAt: newUpdatedAt })
-        .where(
-          and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses)),
-        ),
+        .where(and(eq(orders.id, orderId), inArray(orders.status, expectedStatuses))),
     );
 
     if ((result as D1Result).meta?.changes === 0) {

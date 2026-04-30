@@ -1,7 +1,7 @@
 import { eq, inArray, sql } from "drizzle-orm";
 import { menuItems, orderItems, orderNumberCounters, orders } from "../../../db/schema";
 import { createDb } from "../../lib/db";
-import { getJstNowString } from "../../lib/datetime";
+import { getJstNowString, parseJstString } from "../../lib/datetime";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "../../lib/order-do";
 
 type Db = ReturnType<typeof createDb>;
@@ -17,7 +17,7 @@ export async function createOrder(
   db: Db,
   env: Env,
   cartItems: CartItem[],
-): Promise<{ orderId: string; orderNumber: number }> {
+): Promise<{ orderId: string; orderNumber: number; createdAt: Date }> {
   const businessDate = getBusinessDate();
   const now = getJstNowString();
 
@@ -96,5 +96,5 @@ export async function createOrder(
     throw err;
   }
 
-  return { orderId, orderNumber };
+  return { orderId, orderNumber, createdAt: parseJstString(now) };
 }

@@ -28,6 +28,9 @@ export const orders = sqliteTable(
       "orders_status_check",
       sql`${t.status} IN ('pending','brewing','ready','completed','cancelled')`,
     ),
+    // 履歴ダイアログの cursor pagination は ORDER BY createdAt DESC, id DESC かつ
+    // (createdAt, id) の複合境界条件で絞るので、複合 index にしてスキャン範囲を抑える。
+    index("orders_created_at_id_idx").on(t.createdAt, t.id),
   ],
 );
 

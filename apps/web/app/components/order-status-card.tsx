@@ -3,6 +3,7 @@ import { Form } from "react-router";
 
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
+import { parseJstString } from "~/lib/datetime";
 import { cn } from "~/lib/utils";
 
 type OrderStatus = "pending" | "brewing" | "ready";
@@ -46,14 +47,10 @@ const statusConfig = {
   },
 } satisfies Record<OrderStatus, object>;
 
-function parseJstDate(value: string): Date {
-  return new Date(value.replace(" ", "T") + "+09:00");
-}
-
 function formatMinutesAgo(createdAt: string): string {
   const diffMinutes = Math.max(
     0,
-    Math.floor((Date.now() - parseJstDate(createdAt).getTime()) / 60000),
+    Math.floor((Date.now() - parseJstString(createdAt).getTime()) / 60000),
   );
   return `${diffMinutes}分前`;
 }
