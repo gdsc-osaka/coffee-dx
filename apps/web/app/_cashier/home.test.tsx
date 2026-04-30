@@ -149,9 +149,7 @@ describe("CashierHome", () => {
           buildOrder({ id: "o3", orderNumber: 3, status: "ready" }),
         ],
         // ready 注文 o3 の 1 杯分は紐付き ready unit として表現する
-        brewUnits: [
-          buildBrewUnit({ id: "u3", status: "ready", orderItemId: "o3-item" }),
-        ],
+        brewUnits: [buildBrewUnit({ id: "u3", status: "ready", orderItemId: "o3-item" })],
       });
     });
 
@@ -179,9 +177,7 @@ describe("CashierHome", () => {
       ws.emitMessage({
         type: "SNAPSHOT",
         orders: [buildOrder({ id: "o10", orderNumber: 10, status: "ready" })],
-        brewUnits: [
-          buildBrewUnit({ id: "u10", status: "ready", orderItemId: "o10-item" }),
-        ],
+        brewUnits: [buildBrewUnit({ id: "u10", status: "ready", orderItemId: "o10-item" })],
       });
     });
 

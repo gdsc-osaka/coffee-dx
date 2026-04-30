@@ -195,9 +195,7 @@ describe("DripHome", () => {
       ws.emitMessage({
         type: "SNAPSHOT",
         orders: [buildOrder("o1", 1, "menu-1", 1)],
-        brewUnits: [
-          buildBrewUnit({ id: "u-linked", status: "ready", orderItemId: "o1-item" }),
-        ],
+        brewUnits: [buildBrewUnit({ id: "u-linked", status: "ready", orderItemId: "o1-item" })],
       });
     });
 
