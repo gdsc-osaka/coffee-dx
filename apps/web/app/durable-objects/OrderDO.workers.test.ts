@@ -5,7 +5,7 @@ import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, afterEach } from "vitest";
-import { menuItems, orderItems, orders } from "../../db/schema";
+import { brewUnits, menuItems, orderItems, orders } from "../../db/schema";
 
 type TestEnv = Env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as unknown as TestEnv;
@@ -18,16 +18,19 @@ describe("OrderDO", () => {
   let db: ReturnType<typeof drizzle>;
   let stub: DurableObjectStub;
   let wsClient: WebSocket | null = null;
+  let eventId: string;
 
   beforeEach(async () => {
+    eventId = `event-${crypto.randomUUID()}`;
     db = drizzle(testEnv.DB);
     // クリーンアップ
+    await db.delete(brewUnits);
     await db.delete(orderItems);
     await db.delete(orders);
     await db.delete(menuItems);
 
     // 一意のイベントID相当のDO IDを生成
-    const id = testEnv.ORDER_DO.newUniqueId();
+    const id = testEnv.ORDER_DO.idFromName(eventId);
     stub = testEnv.ORDER_DO.get(id);
   });
 
@@ -52,7 +55,7 @@ describe("OrderDO", () => {
 
   const connectWebSocket = async () => {
     const response = await stub.fetch(
-      new Request("http://localhost/ws", { headers: { Upgrade: "websocket" } }),
+      new Request(`http://localhost/ws?eventId=${eventId}`, { headers: { Upgrade: "websocket" } }),
     );
     expect(response.status).toBe(101);
     expect(response.webSocket).toBeDefined();
@@ -63,7 +66,6 @@ describe("OrderDO", () => {
   };
 
   it("初回接続時にSNAPSHOTを受信する（既存データあり）", async () => {
-    // 事前に DB に pending イベントを1つ入れておく
     await db.insert(menuItems).values([{ id: "m1", name: "coffee", price: 100, isAvailable: 1 }]);
     await db.insert(orders).values([
       {
@@ -84,6 +86,17 @@ describe("OrderDO", () => {
         updatedAt: new Date().toISOString(),
       },
     ]);
+    await db.insert(brewUnits).values([
+      {
+        id: "u1",
+        batchId: "b1",
+        menuItemId: "m1",
+        status: "brewing",
+        businessDate: eventId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    ]);
 
     const ws = await connectWebSocket();
     const msgPromise = getNextMessage(ws!);
@@ -94,72 +107,100 @@ describe("OrderDO", () => {
     expect(msg.orders).toHaveLength(1);
     expect(msg.orders[0].id).toBe("o1");
     expect(msg.orders[0].items).toHaveLength(1);
+    expect(msg.brewUnits).toHaveLength(1);
+    expect(msg.brewUnits[0].id).toBe("u1");
   });
 
-  it("新しい注文が追加されると ORDER_CREATED がブロードキャストされる", async () => {
+  it("BrewUnitを生成すると BREW_UNITS_CREATED がブロードキャストされる", async () => {
+    await db.insert(menuItems).values([{ id: "m1", name: "coffee", price: 100, isAvailable: 1 }]);
+
     const ws = await connectWebSocket();
     let msgPromise = getNextMessage(ws!);
     ws!.accept();
     let msg = await msgPromise; // snapshot (empty)
     expect(msg.type).toBe("SNAPSHOT");
 
-    const newOrder = {
-      id: "o2",
-      orderNumber: 102,
-      status: "pending",
-      items: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    // 別の fetch リクエストでDO宛てに注文作成
     let createdPromise = getNextMessage(ws);
-    await stub.fetch(
-      new Request("http://localhost/do/new-order", {
+    const res = await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newOrder),
+        body: JSON.stringify({ menuItemId: "m1", count: 2, businessDate: eventId }),
       }),
     );
+    expect(res.status).toBe(204);
+
     msg = await createdPromise;
-    expect(msg.type).toBe("ORDER_CREATED");
-    expect(msg.order.id).toBe("o2");
+    expect(msg.type).toBe("BREW_UNITS_CREATED");
+    expect(msg.brewUnits).toHaveLength(2);
+    expect(msg.brewUnits[0].status).toBe("brewing");
+    
+    // DB確認
+    const units = await db.select().from(brewUnits);
+    expect(units).toHaveLength(2);
   });
 
-  it("ステータスが遷移されると更新がDBに反映され ORDER_UPDATED がブロードキャストされる", async () => {
-    // DBに事前に注文を作成しておく（本来のWorker APIの挙動を模倣）
+  it("BrewUnitを完了すると、待機中の注文に紐付けられ、ORDER_UPDATED がブロードキャストされる", async () => {
+    await db.insert(menuItems).values([{ id: "m1", name: "coffee", price: 100, isAvailable: 1 }]);
     await db.insert(orders).values([
       {
-        id: "o3",
-        orderNumber: 103,
+        id: "o1",
+        orderNumber: 101,
         status: "pending",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    await db.insert(orderItems).values([
+      {
+        id: "i1",
+        orderId: "o1",
+        menuItemId: "m1",
+        quantity: 1, // 1杯だけ必要
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     ]);
 
     const ws = await connectWebSocket();
-    let msgPromise = getNextMessage(ws);
-    (ws as any).accept();
-    let msg = await msgPromise; // snapshot
-    expect(msg.type).toBe("SNAPSHOT");
-    expect(msg.orders).toHaveLength(1);
+    let msgPromise = getNextMessage(ws!);
+    ws!.accept();
+    await msgPromise;
 
-    // start action
-    let updatedPromise = getNextMessage(ws);
-    const startRes = await stub.fetch(
-      new Request("http://localhost/do/orders/o3/start", { method: "POST" }),
+    // バッチ生成 (2杯)
+    await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menuItemId: "m1", count: 2, businessDate: eventId }),
+      }),
     );
-    expect(startRes.status).toBe(200);
 
-    msg = await updatedPromise;
-    expect(msg.type).toBe("ORDER_UPDATED");
-    expect(msg.orderId).toBe("o3");
-    expect(msg.status).toBe("brewing");
+    const units = await db.select().from(brewUnits);
+    const batchId = units[0].batchId;
 
-    // 確認用にD1の更新を確認
-    const updatedOrder = await db.select().from(orders).where(eq(orders.id, "o3"));
-    expect(updatedOrder).toHaveLength(1);
-    expect(updatedOrder[0].status).toBe("brewing");
+    // バッチ完了
+    const res = await stub.fetch(
+      new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    // DB確認
+    const completedUnits = await db.select().from(brewUnits);
+    expect(completedUnits).toHaveLength(2);
+    expect(completedUnits[0].status).toBe("ready");
+    expect(completedUnits[1].status).toBe("ready");
+
+    // 1杯は o1 に紐づき、もう1杯は NULL のまま
+    const linked = completedUnits.filter(u => u.orderItemId === "i1");
+    const unlinked = completedUnits.filter(u => u.orderItemId === null);
+    expect(linked).toHaveLength(1);
+    expect(unlinked).toHaveLength(1);
+
+    // オーダーも ready になっているはず
+    const updatedOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+    expect(updatedOrder[0].status).toBe("ready");
   });
 });
