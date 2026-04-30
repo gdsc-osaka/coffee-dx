@@ -361,7 +361,6 @@ export default function DripHome({
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
   }, [ordersById, brewUnitsById, menus]);
 
-
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
