@@ -1,4 +1,4 @@
-import { AlertCircle, Battery, BatteryLow, Bluetooth, Settings } from "lucide-react";
+import { AlertCircle, Battery, BatteryLow, Bluetooth, History, Settings } from "lucide-react";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import type { PrinterStatus } from "lx-printer/lx-d02";
 
@@ -6,12 +6,14 @@ interface CashierHeaderProps {
   printerStatus: ConnectionStatus;
   printerStatusData: PrinterStatus | null;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
 }
 
 export function CashierHeader({
   printerStatus,
   printerStatusData,
   onOpenSettings,
+  onOpenHistory,
 }: CashierHeaderProps) {
   return (
     <div className="shrink-0 flex flex-col rotate-180 bg-stone-950 p-2 gap-1 border-b border-stone-800">
@@ -20,7 +22,7 @@ export function CashierHeader({
           Cashier View
         </p>
         <div className="flex items-center gap-2 text-[10px] text-stone-500">
-          {printerStatusData && (
+          {printerStatus === "connected" && printerStatusData && (
             <div className="flex items-center gap-1">
               {printerStatusData.isOutOfPaper ? (
                 <AlertCircle className="size-3 text-red-500 animate-pulse" />
@@ -30,7 +32,11 @@ export function CashierHeader({
                 <Battery className="size-3 text-emerald-500" />
               )}
               <span className={printerStatusData.isOutOfPaper ? "text-red-500" : ""}>
-                {printerStatusData.isOutOfPaper ? "NO PAPER" : `${printerStatusData.battery}%`}
+                {printerStatusData.isOutOfPaper
+                  ? "NO PAPER"
+                  : printerStatusData.battery !== undefined
+                    ? `${printerStatusData.battery}%`
+                    : "--"}
               </span>
             </div>
           )}
@@ -54,7 +60,16 @@ export function CashierHeader({
           </div>
           <button
             type="button"
+            onClick={onOpenHistory}
+            aria-label="注文履歴を開く"
+            className="p-1 hover:bg-stone-800 rounded transition-colors"
+          >
+            <History className="size-3 text-stone-400" />
+          </button>
+          <button
+            type="button"
             onClick={onOpenSettings}
+            aria-label="プリンター設定を開く"
             className="p-1 hover:bg-stone-800 rounded transition-colors"
           >
             <Settings className="size-3 text-stone-400" />
