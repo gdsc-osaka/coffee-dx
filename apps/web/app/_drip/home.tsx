@@ -361,9 +361,7 @@ export default function DripHome({
 
   const isEmpty =
     isSnapshotLoaded &&
-    menuSummaries.every(
-      (menu) => menu.ordered === 0 && menu.brewing === 0 && menu.ready === 0,
-    );
+    menuSummaries.every((menu) => menu.ordered === 0 && menu.brewing === 0 && menu.ready === 0);
 
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
