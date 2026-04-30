@@ -99,6 +99,14 @@ export class OrderDurableObject implements DurableObject {
       return this.handleBatchDiscard(discardMatch[1]);
     }
 
+    // DELETE /do/brew-units/menu/:menuId/surplus  →  メニューごとの余剰削除（1件ずつ）
+    const surplusMatch = url.pathname.match(
+      /^\/do\/brew-units\/menu\/([^/]+)\/surplus$/,
+    );
+    if (request.method === "DELETE" && surplusMatch) {
+      return this.handleMenuSurplusDecrease(surplusMatch[1]);
+    }
+
     // POST /do/orders/:id/:action  →  cancel / close のみ残す
     const orderMatch = url.pathname.match(/^\/do\/orders\/([^/]+)\/([^/]+)$/);
     if (request.method === "POST" && orderMatch) {
@@ -187,8 +195,16 @@ export class OrderDurableObject implements DurableObject {
           });
         }
 
+        // activeな注文のアイテムID一覧
+        const activeOrderItemsSet = new Set(allItems.map((i) => i.id));
+
         // brew_units をインメモリに展開
         for (const u of activeBrewUnitsRaw) {
+          // 提供済み（完了/キャンセル済みの注文に紐づく）brew_unit は DO の管理対象外とする
+          if (u.orderItemId && !activeOrderItemsSet.has(u.orderItemId)) {
+            continue;
+          }
+
           this.brewUnits.set(u.id, {
             id: u.id,
             batchId: u.batchId,
@@ -525,6 +541,36 @@ export class OrderDurableObject implements DurableObject {
   }
 
   // ---------------------------------------------------------------------------
+  // BrewUnit: 余剰削除（メニュー単位で1件）
+  // ---------------------------------------------------------------------------
+
+  private async handleMenuSurplusDecrease(menuItemId: string): Promise<Response> {
+    const db = createDb(this.env.DB);
+
+    // ready かつ未紐付きの同メニューユニットを取得（古いものから）
+    const targetUnits = [...this.brewUnits.values()]
+      .filter((u) => u.menuItemId === menuItemId && u.status === "ready" && u.orderItemId === null)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    if (targetUnits.length === 0) {
+      return new Response("No surplus units found for this menu", { status: 404 });
+    }
+
+    const targetUnit = targetUnits[0];
+
+    await this.writeWithRetry(() =>
+      db
+        .delete(brewUnits)
+        .where(eq(brewUnits.id, targetUnit.id)),
+    );
+
+    this.brewUnits.delete(targetUnit.id);
+    this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: targetUnit.id });
+
+    return new Response(null, { status: 200 });
+  }
+
+  // ---------------------------------------------------------------------------
   // 注文ステータス自動遷移
   // ---------------------------------------------------------------------------
 
@@ -607,6 +653,14 @@ export class OrderDurableObject implements DurableObject {
 
     if (targetStatus === "completed" || targetStatus === "cancelled") {
       this.orders.delete(orderId);
+      
+      const linkedUnits = Array.from(this.brewUnits.values()).filter((u) =>
+        order.items.some((item) => item.id === u.orderItemId),
+      );
+      for (const u of linkedUnits) {
+        this.brewUnits.delete(u.id);
+        this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: u.id });
+      }
     }
 
     return new Response(null, { status: 200 });
