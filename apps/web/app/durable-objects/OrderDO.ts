@@ -41,7 +41,8 @@ type ServerMessage =
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
-  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string }
+  | { type: "pong" };
 
 export class OrderDurableObject implements DurableObject {
   private readonly orders = new Map<string, OrderData>();
@@ -259,6 +260,22 @@ export class OrderDurableObject implements DurableObject {
 
     server.addEventListener("close", () => this.sessions.delete(server));
     server.addEventListener("error", () => this.sessions.delete(server));
+
+    // クライアントからのアプリケーション層 ping に pong で応答する。
+    // Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）や NAT 再起動などで
+    // TCP が「半開き」になった際、クライアント側が onclose を受け取れないままに
+    // なる現象を防ぐため、フレーム往復をクライアント主導で確認させる。
+    server.addEventListener("message", (event: MessageEvent) => {
+      if (typeof event.data !== "string") return;
+      try {
+        const msg = JSON.parse(event.data) as { type?: unknown };
+        if (msg && msg.type === "ping") {
+          server.send(JSON.stringify({ type: "pong" }));
+        }
+      } catch {
+        // 不正な JSON / 想定外メッセージは無視
+      }
+    });
 
     return new Response(null, { status: 101, webSocket: client });
   }
