@@ -164,19 +164,20 @@ describe("DripHome", () => {
       });
     });
 
-    // 抽出レーン section にメニュー名と「スワイプで完了 / 1秒長押し取消」操作子が出る
+    // 抽出レーン section にスワイプ完了・長押し取消の操作子が出る
     const lanesSection = await waitFor(() => {
       const section = screen.getByRole("region", { name: "抽出レーン" });
-      expect(within(section).getByText("アメリカーノ")).toBeInTheDocument();
+      expect(within(section).getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
       return section;
     });
 
     expect(
-      within(lanesSection).getByRole("button", { name: /スワイプで完了/ }),
-    ).toBeInTheDocument();
-    expect(
       within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
     ).toBeInTheDocument();
+    // 固定 3 レーン枠が常に表示される
+    expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
   });
 
   it("ProductionDashboard に余剰削除ボタンが ready 余剰時のみ出る", async () => {
@@ -207,7 +208,7 @@ describe("DripHome", () => {
     });
   });
 
-  it("BREW_UNIT_DELETED でアクティブレーンが消滅し、完了 / 取消 ボタンも消える", async () => {
+  it("BREW_UNIT_DELETED で完了 / 取消 ボタンが消えるが、レーン枠自体は idle として残る", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
@@ -227,13 +228,22 @@ describe("DripHome", () => {
       ws.emitMessage({ type: "BREW_UNIT_DELETED", brewUnitId: "u1" });
     });
 
+    const lanesSection = screen.getByRole("region", { name: "抽出レーン" });
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: /スワイプで完了/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /取消 \(1秒長押し\)/ })).not.toBeInTheDocument();
+      expect(
+        within(lanesSection).queryByRole("button", { name: /スワイプで完了/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        within(lanesSection).queryByRole("button", { name: /取消 \(1秒長押し\)/ }),
+      ).not.toBeInTheDocument();
     });
+    // レーン枠は固定 3 個で常時表示される（レーン 1〜3 の見出し）
+    expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
   });
 
-  it("「+ レーン追加」でアイドルレーンが現れ、メニューと杯数を選んで「抽出開始」できる", async () => {
+  it("初期表示で 3 つのレーン枠が出ており、メニュー選択 → 抽出開始でタイマー設定中になる", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
@@ -246,18 +256,28 @@ describe("DripHome", () => {
     });
 
     const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
-    // 初期はアクティブレーンなし、アイドルもなし
-    expect(within(lanesSection).queryByText(/レーン 1$/)).not.toBeInTheDocument();
-
-    // レーン追加
-    fireEvent.click(within(lanesSection).getByRole("button", { name: /レーン追加/ }));
+    // 固定 3 レーン枠
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
+    // 「+ レーン追加」「× レーン削除」は無い
+    expect(
+      within(lanesSection).queryByRole("button", { name: /レーン追加/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(lanesSection).queryByRole("button", { name: "このレーンを削除" }),
+    ).not.toBeInTheDocument();
 
-    // メニュー選択
-    fireEvent.click(within(lanesSection).getByRole("button", { name: "アメリカーノ" }));
+    // メニュー選択（最初のレーン）
+    const americanos = within(lanesSection).getAllByRole("button", { name: "アメリカーノ" });
+    fireEvent.click(americanos[0]);
 
     // 抽出開始 → タイマー設定中に遷移
-    fireEvent.click(within(lanesSection).getByRole("button", { name: "▶ 抽出開始" }));
+    fireEvent.click(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })[0]);
     expect(within(lanesSection).getByText("合計")).toBeInTheDocument();
+    // タイマーなしのまま「タイマーなしで開始」も可能（durationSec=0 で enabled）
+    expect(
+      within(lanesSection).getByRole("button", { name: "▶ タイマーなしで開始" }),
+    ).toBeEnabled();
   });
 });

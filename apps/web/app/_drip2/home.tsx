@@ -3,11 +3,19 @@ import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 import { ProductionDashboard } from "./components/ProductionDashboard";
-import { BrewLane, type BrewLaneState, type LaneActiveDescriptor } from "./components/BrewLane";
+import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState, LanePendingState } from "./components/LaneIdle";
-import { AddLaneButton } from "./components/AddLaneButton";
 import { SoundToggle } from "./components/SoundToggle";
 import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
+
+/** 物理ドリッパーの数を想定した固定レーン数。3 個のスロットを常に表示する。 */
+const LANE_COUNT = 3;
+type LaneSlot = LaneIdleState | LanePendingState | LaneActiveDescriptor;
+const buildIdleSlot = (): LaneIdleState => ({
+  kind: "idle",
+  menuItemId: null,
+  count: 1,
+});
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -200,13 +208,12 @@ export default function DripHome({
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
 
   /**
-   * ローカルレーン枠（idle / pending）。
-   * アクティブレーンは brewing バッチから派生するためここには含めない。
-   * 「+ レーン追加」「× レーン削除」「Start 楽観的削除」でこの配列を変更する。
+   * 固定 N 個のレーンスロット。idle / pending / active を独立に持つ。
+   * 抽出が完了してもスロット自体は消えず idle に戻る（物理ドリッパーに対応する設計）。
    */
-  const [localLanes, setLocalLanes] = useState<
-    Array<{ id: string; state: LaneIdleState | LanePendingState }>
-  >([]);
+  const [laneSlots, setLaneSlots] = useState<LaneSlot[]>(() =>
+    Array.from({ length: LANE_COUNT }, buildIdleSlot),
+  );
 
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -424,8 +431,9 @@ export default function DripHome({
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
   const submittingMenuId = isSubmitting ? navigation.formData?.get("menuItemId") : null;
 
-  // アクティブレーンを brewing バッチから派生（createdAt 昇順）
-  const activeLanes = useMemo<LaneActiveDescriptor[]>(() => {
+  // brewing バッチを「レーン候補」として派生（createdAt 昇順）。
+  // 自分のレーンスロットへの割当は別途 useEffect で行う。
+  const activeBatches = useMemo<LaneActiveDescriptor[]>(() => {
     const allUnits = Object.values(brewUnitsById);
     const byBatch = new Map<string, BrewUnitData[]>();
     for (const u of allUnits) {
@@ -448,27 +456,71 @@ export default function DripHome({
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [brewUnitsById]);
 
-  const addLane = useCallback(() => {
-    setLocalLanes((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        state: { kind: "idle", menuItemId: null, count: 1 },
-      },
-    ]);
-  }, []);
+  // brewing バッチをレーンスロットへ自動割当する。
+  // - active スロットの batchId が brewing でなくなったら idle に戻す（完了/取消で消えない）
+  // - 未紐付きの brewing バッチを最も若い idle スロットへ詰める
+  // - active スロットの最新メタ（count・targetDurationSec 等）も同期する
+  useEffect(() => {
+    setLaneSlots((prev) => {
+      const next = [...prev];
+      const batchById = new Map(activeBatches.map((b) => [b.batchId, b]));
+      let changed = false;
 
-  const removeLane = useCallback((laneId: string) => {
-    setLocalLanes((prev) => prev.filter((l) => l.id !== laneId));
-  }, []);
+      for (let i = 0; i < next.length; i++) {
+        const slot = next[i];
+        if (slot.kind !== "active") continue;
+        const batch = batchById.get(slot.batchId);
+        if (!batch) {
+          next[i] = buildIdleSlot();
+          changed = true;
+        } else if (batch !== slot) {
+          // メタが更新されているケース（targetDurationSec が後から付くなど）に追従
+          if (
+            batch.count !== slot.count ||
+            batch.menuItemName !== slot.menuItemName ||
+            batch.createdAt !== slot.createdAt ||
+            batch.targetDurationSec !== slot.targetDurationSec
+          ) {
+            next[i] = batch;
+            changed = true;
+          }
+        }
+      }
 
-  const updateLaneState = useCallback((laneId: string, next: LaneIdleState | LanePendingState) => {
-    setLocalLanes((prev) => prev.map((l) => (l.id === laneId ? { ...l, state: next } : l)));
-  }, []);
+      const occupied = new Set(
+        next.filter((s): s is LaneActiveDescriptor => s.kind === "active").map((s) => s.batchId),
+      );
+      for (const batch of activeBatches) {
+        if (occupied.has(batch.batchId)) continue;
+        const idleIdx = next.findIndex((s) => s.kind === "idle");
+        if (idleIdx < 0) break; // 空きスロット無し（レーン超過）
+        next[idleIdx] = batch;
+        occupied.add(batch.batchId);
+        changed = true;
+      }
 
-  /** Start 押下時の楽観的削除：BREW_UNITS_CREATED 受信を待たずローカル枠を消す */
-  const handleStart = useCallback((laneId: string) => {
-    setLocalLanes((prev) => prev.filter((l) => l.id !== laneId));
+      return changed ? next : prev;
+    });
+  }, [activeBatches]);
+
+  const updateLaneState = useCallback(
+    (laneIndex: number, nextState: LaneIdleState | LanePendingState) => {
+      setLaneSlots((prev) => {
+        const arr = [...prev];
+        arr[laneIndex] = nextState;
+        return arr;
+      });
+    },
+    [],
+  );
+
+  /** Start 押下時：スロットを idle に戻す。BREW_UNITS_CREATED 受信で再度 active に切替わる */
+  const handleStart = useCallback((laneIndex: number) => {
+    setLaneSlots((prev) => {
+      const arr = [...prev];
+      arr[laneIndex] = buildIdleSlot();
+      return arr;
+    });
   }, []);
 
   return (
@@ -508,55 +560,40 @@ export default function DripHome({
               submittingIntent={submittingIntent as string | null}
               submittingMenuId={submittingMenuId as string | null}
             />
-            <section
-              aria-label="抽出レーン"
-              className="px-4 sm:px-8 py-6 sm:py-8 flex flex-col gap-4"
-            >
-              {activeLanes.map((lane, idx) => {
-                const isCompleting =
-                  submittingBatchId === lane.batchId && submittingIntent === "brew-complete";
-                const isCancelling =
-                  submittingBatchId === lane.batchId && submittingIntent === "brew-cancel";
-                const laneState: BrewLaneState = lane;
-                return (
-                  <BrewLane
-                    key={`active-${lane.batchId}`}
-                    laneNumber={idx + 1}
-                    state={laneState}
-                    menus={menus}
-                    eventId={eventId}
-                    onChangeState={() => {}}
-                    onRemove={() => {}}
-                    onStart={() => {}}
-                    isStarting={false}
-                    isCompleting={isCompleting}
-                    isCancelling={isCancelling}
-                  />
-                );
-              })}
-              {localLanes.map((lane, idx) => {
-                const laneNumber = activeLanes.length + idx + 1;
-                const isStarting =
-                  submittingIntent === "brew-start" &&
-                  lane.state.kind === "pending" &&
-                  submittingMenuId === lane.state.menuItemId;
-                return (
-                  <BrewLane
-                    key={lane.id}
-                    laneNumber={laneNumber}
-                    state={lane.state}
-                    menus={menus}
-                    eventId={eventId}
-                    onChangeState={(next) => updateLaneState(lane.id, next)}
-                    onRemove={() => removeLane(lane.id)}
-                    onStart={() => handleStart(lane.id)}
-                    isStarting={isStarting}
-                    isCompleting={false}
-                    isCancelling={false}
-                  />
-                );
-              })}
-              <AddLaneButton onAdd={addLane} />
+            <section aria-label="抽出レーン" className="px-4 sm:px-8 py-6 sm:py-8 overflow-x-auto">
+              <div className="flex flex-row gap-4 sm:gap-6">
+                {laneSlots.map((slot, idx) => {
+                  const laneNumber = idx + 1;
+                  const batchId = slot.kind === "active" ? slot.batchId : null;
+                  const isCompleting =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-complete";
+                  const isCancelling =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-cancel";
+                  const isStarting =
+                    submittingIntent === "brew-start" &&
+                    slot.kind === "pending" &&
+                    submittingMenuId === slot.menuItemId;
+                  return (
+                    <div key={idx} className="w-[22rem] sm:w-[26rem] shrink-0">
+                      <BrewLane
+                        laneNumber={laneNumber}
+                        state={slot}
+                        menus={menus}
+                        eventId={eventId}
+                        onChangeState={(next) => updateLaneState(idx, next)}
+                        onStart={() => handleStart(idx)}
+                        isStarting={isStarting}
+                        isCompleting={isCompleting}
+                        isCancelling={isCancelling}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </section>
           </>
         )}

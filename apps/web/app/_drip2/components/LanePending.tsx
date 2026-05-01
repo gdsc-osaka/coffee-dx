@@ -24,7 +24,8 @@ export function LanePending({
     const next = Math.max(0, state.durationSec + delta);
     onChangeState({ ...state, durationSec: next });
   };
-  const canStart = state.durationSec > 0;
+  // タイマーは補助機能。durationSec=0 のまま「タイマーなしで開始」も許容する。
+  const startLabel = state.durationSec > 0 ? "▶ Start" : "▶ タイマーなしで開始";
 
   return (
     <div className="bg-white border-2 border-amber-300 rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm">
@@ -90,10 +91,10 @@ export function LanePending({
           <input type="hidden" name="targetDurationSec" value={state.durationSec} />
           <button
             type="submit"
-            disabled={!canStart || isStarting}
+            disabled={isStarting}
             className="w-full py-4 text-xl font-black bg-amber-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
           >
-            {isStarting ? "..." : "▶ Start"}
+            {isStarting ? "..." : startLabel}
           </button>
         </Form>
       </div>

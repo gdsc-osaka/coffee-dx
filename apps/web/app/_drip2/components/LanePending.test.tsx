@@ -34,9 +34,9 @@ function setup(initialDuration = 0) {
 }
 
 describe("LanePending", () => {
-  it("初期は durationSec=0 のとき Start ボタンが disabled", () => {
+  it("durationSec=0 のときは「タイマーなしで開始」表示で enabled（タイマーは任意）", () => {
     setup(0);
-    expect(screen.getByRole("button", { name: "▶ Start" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "▶ タイマーなしで開始" })).toBeEnabled();
   });
 
   it("+10秒ボタンを押すと onChangeState が durationSec+10 で呼ばれる", () => {

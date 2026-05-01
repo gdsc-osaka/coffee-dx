@@ -20,7 +20,6 @@ export function BrewLane({
   menus,
   eventId,
   onChangeState,
-  onRemove,
   onStart,
   isStarting,
   isCompleting,
@@ -31,7 +30,6 @@ export function BrewLane({
   menus: Array<{ id: string; name: string }>;
   eventId: string;
   onChangeState: (next: LaneIdleState | LanePendingState) => void;
-  onRemove: () => void;
   onStart: () => void;
   isStarting: boolean;
   isCompleting: boolean;
@@ -39,13 +37,7 @@ export function BrewLane({
 }) {
   if (state.kind === "idle") {
     return (
-      <LaneIdle
-        laneNumber={laneNumber}
-        state={state}
-        menus={menus}
-        onChangeState={onChangeState}
-        onRemove={onRemove}
-      />
+      <LaneIdle laneNumber={laneNumber} state={state} menus={menus} onChangeState={onChangeState} />
     );
   }
   if (state.kind === "pending") {
