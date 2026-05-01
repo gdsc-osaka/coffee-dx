@@ -6,10 +6,11 @@ import { ProductionDashboard } from "./components/ProductionDashboard";
 import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState, LanePendingState } from "./components/LaneIdle";
 import { SoundToggle } from "./components/SoundToggle";
+import { AddLaneButton } from "./components/AddLaneButton";
 import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
 
-/** 物理ドリッパーの数を想定した固定レーン数。3 個のスロットを常に表示する。 */
-const LANE_COUNT = 3;
+/** 物理ドリッパー想定の初期レーン数。「+ レーン追加」「× 削除」で運用に応じて増減する */
+const INITIAL_LANE_COUNT = 3;
 type LaneSlot = LaneIdleState | LanePendingState | LaneActiveDescriptor;
 const buildIdleSlot = (): LaneIdleState => ({
   kind: "idle",
@@ -208,11 +209,12 @@ export default function DripHome({
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
 
   /**
-   * 固定 N 個のレーンスロット。idle / pending / active を独立に持つ。
+   * レーンスロット。idle / pending / active を独立に持つ。
    * 抽出が完了してもスロット自体は消えず idle に戻る（物理ドリッパーに対応する設計）。
+   * 初期は INITIAL_LANE_COUNT 個。「+ レーン追加」「× 削除」で動的に増減する。
    */
   const [laneSlots, setLaneSlots] = useState<LaneSlot[]>(() =>
-    Array.from({ length: LANE_COUNT }, buildIdleSlot),
+    Array.from({ length: INITIAL_LANE_COUNT }, buildIdleSlot),
   );
 
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
@@ -523,6 +525,18 @@ export default function DripHome({
     });
   }, []);
 
+  const addLane = useCallback(() => {
+    setLaneSlots((prev) => [...prev, buildIdleSlot()]);
+  }, []);
+
+  /** idle 状態のスロットだけを削除可能（pending / active のスロットは無視） */
+  const removeLane = useCallback((laneIndex: number) => {
+    setLaneSlots((prev) => {
+      if (prev[laneIndex]?.kind !== "idle") return prev;
+      return prev.filter((_, i) => i !== laneIndex);
+    });
+  }, []);
+
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       {/* Header */}
@@ -585,6 +599,7 @@ export default function DripHome({
                         menus={menus}
                         eventId={eventId}
                         onChangeState={(next) => updateLaneState(idx, next)}
+                        onRemove={() => removeLane(idx)}
                         onStart={() => handleStart(idx)}
                         isStarting={isStarting}
                         isCompleting={isCompleting}
@@ -593,6 +608,9 @@ export default function DripHome({
                     </div>
                   );
                 })}
+                <div className="w-[22rem] sm:w-[26rem] shrink-0">
+                  <AddLaneButton onAdd={addLane} />
+                </div>
               </div>
             </section>
           </>

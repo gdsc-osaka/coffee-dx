@@ -1,3 +1,5 @@
+import { X } from "lucide-react";
+
 export type LaneIdleState = {
   kind: "idle";
   menuItemId: string | null;
@@ -16,17 +18,30 @@ export function LaneIdle({
   state,
   menus,
   onChangeState,
+  onRemove,
 }: {
   laneNumber: number;
   state: LaneIdleState;
   menus: Array<{ id: string; name: string }>;
   onChangeState: (next: LaneIdleState | LanePendingState) => void;
+  onRemove: () => void;
 }) {
   const canStart = state.menuItemId !== null && state.count >= 1;
 
   return (
     <div className="bg-white border-2 border-stone-200 rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm">
-      <span className="text-sm font-bold text-stone-400">レーン {laneNumber}</span>
+      <div className="flex items-center">
+        <span className="text-sm font-bold text-stone-400">レーン {laneNumber}</span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="ml-auto w-9 h-9 flex items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
+          title="このレーンを削除"
+          aria-label="このレーンを削除"
+        >
+          <X className="w-5 h-5" aria-hidden="true" />
+        </button>
+      </div>
 
       <div className="flex flex-col gap-2">
         <span className="text-sm font-bold text-stone-500">メニューを選択</span>

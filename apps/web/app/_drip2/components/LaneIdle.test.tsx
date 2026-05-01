@@ -5,6 +5,7 @@ import { LaneIdle, type LaneIdleState } from "./LaneIdle";
 
 function setup(initial: Partial<LaneIdleState> = {}) {
   const onChangeState = vi.fn();
+  const onRemove = vi.fn();
   const state: LaneIdleState = {
     kind: "idle",
     menuItemId: null,
@@ -20,9 +21,10 @@ function setup(initial: Partial<LaneIdleState> = {}) {
         { id: "menu-2", name: "ラテ" },
       ]}
       onChangeState={onChangeState}
+      onRemove={onRemove}
     />,
   );
-  return { onChangeState, ...utils };
+  return { onChangeState, onRemove, ...utils };
 }
 
 describe("LaneIdle", () => {
@@ -58,8 +60,9 @@ describe("LaneIdle", () => {
     });
   });
 
-  it("レーン削除ボタンは存在しない（固定レーン化）", () => {
-    setup();
-    expect(screen.queryByRole("button", { name: "このレーンを削除" })).not.toBeInTheDocument();
+  it("× 削除ボタンで onRemove が呼ばれる", () => {
+    const { onRemove } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "このレーンを削除" }));
+    expect(onRemove).toHaveBeenCalled();
   });
 });

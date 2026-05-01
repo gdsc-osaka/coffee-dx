@@ -256,17 +256,15 @@ describe("DripHome", () => {
     });
 
     const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
-    // 固定 3 レーン枠
+    // 初期 3 レーン枠 + 「+ レーン追加」ボタン
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
-    // 「+ レーン追加」「× レーン削除」は無い
-    expect(
-      within(lanesSection).queryByRole("button", { name: /レーン追加/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(lanesSection).queryByRole("button", { name: "このレーンを削除" }),
-    ).not.toBeInTheDocument();
+    expect(within(lanesSection).getByRole("button", { name: /レーン追加/ })).toBeInTheDocument();
+    // idle 状態のレーンには × 削除ボタンが付く
+    expect(within(lanesSection).getAllByRole("button", { name: "このレーンを削除" })).toHaveLength(
+      3,
+    );
 
     // メニュー選択（最初のレーン）
     const americanos = within(lanesSection).getAllByRole("button", { name: "アメリカーノ" });
@@ -279,5 +277,33 @@ describe("DripHome", () => {
     expect(
       within(lanesSection).getByRole("button", { name: "▶ タイマーなしで開始" }),
     ).toBeEnabled();
+  });
+
+  it("「+ レーン追加」でレーン枠が増え、idle スロットの「× 削除」で減らせる", async () => {
+    renderDrip();
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws.emitMessage({
+        type: "SNAPSHOT",
+        orders: [],
+        brewUnits: [],
+      });
+    });
+
+    const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
+
+    // 初期 3 レーン
+    expect(within(lanesSection).getAllByText(/^レーン \d+$/)).toHaveLength(3);
+
+    // + レーン追加
+    fireEvent.click(within(lanesSection).getByRole("button", { name: /レーン追加/ }));
+    expect(within(lanesSection).getAllByText(/^レーン \d+$/)).toHaveLength(4);
+    expect(within(lanesSection).getByText(/レーン 4$/)).toBeInTheDocument();
+
+    // × 削除（最初のレーン）
+    const removeButtons = within(lanesSection).getAllByRole("button", { name: "このレーンを削除" });
+    fireEvent.click(removeButtons[0]);
+    expect(within(lanesSection).getAllByText(/^レーン \d+$/)).toHaveLength(3);
   });
 });

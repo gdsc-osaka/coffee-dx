@@ -20,6 +20,7 @@ export function BrewLane({
   menus,
   eventId,
   onChangeState,
+  onRemove,
   onStart,
   isStarting,
   isCompleting,
@@ -30,6 +31,8 @@ export function BrewLane({
   menus: Array<{ id: string; name: string }>;
   eventId: string;
   onChangeState: (next: LaneIdleState | LanePendingState) => void;
+  /** idle 状態のレーンの「× 削除」コールバック。idle 以外の状態では呼ばれない */
+  onRemove: () => void;
   onStart: () => void;
   isStarting: boolean;
   isCompleting: boolean;
@@ -37,7 +40,13 @@ export function BrewLane({
 }) {
   if (state.kind === "idle") {
     return (
-      <LaneIdle laneNumber={laneNumber} state={state} menus={menus} onChangeState={onChangeState} />
+      <LaneIdle
+        laneNumber={laneNumber}
+        state={state}
+        menus={menus}
+        onChangeState={onChangeState}
+        onRemove={onRemove}
+      />
     );
   }
   if (state.kind === "pending") {
