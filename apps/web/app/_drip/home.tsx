@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
-import { MenuSection } from "./components/MenuSection";
 import { ProductionDashboard } from "./components/ProductionDashboard";
+import { BrewLane, type BrewLaneState, type LaneActiveDescriptor } from "./components/BrewLane";
+import type { LaneIdleState, LanePendingState } from "./components/LaneIdle";
+import { AddLaneButton } from "./components/AddLaneButton";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -196,8 +198,15 @@ export default function DripHome({
 
   const [ordersById, setOrdersById] = useState<Record<string, OrderData>>({});
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
-  /** メニューごとの開始杯数入力 */
-  const [countByMenu, setCountByMenu] = useState<Record<string, number>>({});
+
+  /**
+   * ローカルレーン枠（idle / pending）。
+   * アクティブレーンは brewing バッチから派生するためここには含めない。
+   * 「+ レーン追加」「× レーン削除」「Start 楽観的削除」でこの配列を変更する。
+   */
+  const [localLanes, setLocalLanes] = useState<
+    Array<{ id: string; state: LaneIdleState | LanePendingState }>
+  >([]);
 
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -397,6 +406,58 @@ export default function DripHome({
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
   const submittingMenuId = isSubmitting ? navigation.formData?.get("menuItemId") : null;
 
+  // アクティブレーンを brewing バッチから派生（createdAt 昇順）
+  const activeLanes = useMemo<LaneActiveDescriptor[]>(() => {
+    const allUnits = Object.values(brewUnitsById);
+    const byBatch = new Map<string, BrewUnitData[]>();
+    for (const u of allUnits) {
+      if (u.status !== "brewing") continue;
+      if (!byBatch.has(u.batchId)) byBatch.set(u.batchId, []);
+      byBatch.get(u.batchId)!.push(u);
+    }
+    return [...byBatch.entries()]
+      .map(([batchId, units]): LaneActiveDescriptor => {
+        const first = units[0];
+        return {
+          kind: "active",
+          batchId,
+          menuItemName: first.menuItemName,
+          count: units.length,
+          createdAt: first.createdAt,
+          targetDurationSec: first.targetDurationSec,
+        };
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [brewUnitsById]);
+
+  const addLane = useCallback(() => {
+    setLocalLanes((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        state: { kind: "idle", menuItemId: null, count: 1 },
+      },
+    ]);
+  }, []);
+
+  const removeLane = useCallback((laneId: string) => {
+    setLocalLanes((prev) => prev.filter((l) => l.id !== laneId));
+  }, []);
+
+  const updateLaneState = useCallback(
+    (laneId: string, next: LaneIdleState | LanePendingState) => {
+      setLocalLanes((prev) =>
+        prev.map((l) => (l.id === laneId ? { ...l, state: next } : l)),
+      );
+    },
+    [],
+  );
+
+  /** Start 押下時の楽観的削除：BREW_UNITS_CREATED 受信を待たずローカル枠を消す */
+  const handleStart = useCallback((laneId: string) => {
+    setLocalLanes((prev) => prev.filter((l) => l.id !== laneId));
+  }, []);
+
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       {/* Header */}
@@ -433,27 +494,56 @@ export default function DripHome({
               submittingIntent={submittingIntent as string | null}
               submittingMenuId={submittingMenuId as string | null}
             />
-            <div className="sm:overflow-x-auto">
-              <div className="flex flex-col gap-8 px-4 py-6 sm:flex-row sm:h-full sm:px-8 sm:py-10 sm:gap-12 sm:min-w-max">
-                {menuSummaries.map((menu) => (
-                  <MenuSection
-                    key={menu.menuItemId}
-                    menu={menu}
+            <section
+              aria-label="抽出レーン"
+              className="px-4 sm:px-8 py-6 sm:py-8 flex flex-col gap-4"
+            >
+              {activeLanes.map((lane, idx) => {
+                const isCompleting =
+                  submittingBatchId === lane.batchId && submittingIntent === "brew-complete";
+                const isCancelling =
+                  submittingBatchId === lane.batchId && submittingIntent === "brew-cancel";
+                const laneState: BrewLaneState = lane;
+                return (
+                  <BrewLane
+                    key={`active-${lane.batchId}`}
+                    laneNumber={idx + 1}
+                    state={laneState}
+                    menus={menus}
                     eventId={eventId}
-                    count={countByMenu[menu.menuItemId] ?? 1}
-                    onCountChange={(n) =>
-                      setCountByMenu((prev) => ({
-                        ...prev,
-                        [menu.menuItemId]: n,
-                      }))
-                    }
-                    submittingBatchId={submittingBatchId as string | null}
-                    submittingIntent={submittingIntent as string | null}
-                    submittingMenuId={submittingMenuId as string | null}
+                    onChangeState={() => {}}
+                    onRemove={() => {}}
+                    onStart={() => {}}
+                    isStarting={false}
+                    isCompleting={isCompleting}
+                    isCancelling={isCancelling}
                   />
-                ))}
-              </div>
-            </div>
+                );
+              })}
+              {localLanes.map((lane, idx) => {
+                const laneNumber = activeLanes.length + idx + 1;
+                const isStarting =
+                  submittingIntent === "brew-start" &&
+                  lane.state.kind === "pending" &&
+                  submittingMenuId === lane.state.menuItemId;
+                return (
+                  <BrewLane
+                    key={lane.id}
+                    laneNumber={laneNumber}
+                    state={lane.state}
+                    menus={menus}
+                    eventId={eventId}
+                    onChangeState={(next) => updateLaneState(lane.id, next)}
+                    onRemove={() => removeLane(lane.id)}
+                    onStart={() => handleStart(lane.id)}
+                    isStarting={isStarting}
+                    isCompleting={false}
+                    isCancelling={false}
+                  />
+                );
+              })}
+              <AddLaneButton onAdd={addLane} />
+            </section>
           </>
         )}
 

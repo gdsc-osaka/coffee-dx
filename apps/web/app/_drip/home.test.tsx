@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -145,7 +145,7 @@ describe("DripHome", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   });
 
-  it("SNAPSHOT 受信後にメニューセクションが表示され、抽出中バッチに 完了/取消し ボタンと新規バッチ用の 開始 ボタンが出る", async () => {
+  it("SNAPSHOT 受信後に brewing バッチがアクティブレーンとして表示される（完了 / 取消 ボタン付き）", async () => {
     renderDrip();
 
     const ws = MockWebSocket.instances[0];
@@ -156,44 +156,26 @@ describe("DripHome", () => {
       ws.emitOpen();
       ws.emitMessage({
         type: "SNAPSHOT",
-        // 注文 1件 (アメリカーノ × 2 杯)
         orders: [buildOrder("o1", 1, "menu-1", 2)],
-        // 抽出中 1 杯のバッチ
         brewUnits: [buildBrewUnit({ id: "u1", status: "brewing" })],
       });
     });
 
-    // メニュー単位のセクションが描画される
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "アメリカーノ" })).toBeInTheDocument();
+    // 抽出レーン section にメニュー名と「完了 / 取消」ボタンが出る
+    const lanesSection = await waitFor(() => {
+      const section = screen.getByRole("region", { name: "抽出レーン" });
+      expect(within(section).getByText("アメリカーノ")).toBeInTheDocument();
+      return section;
     });
 
-    const section = screen
-      .getByRole("heading", { name: "アメリカーノ" })
-      .closest("section") as HTMLElement;
-    expect(section).toBeTruthy();
-
-    // 集計テキストがセクション内に出る (注文 2 / 抽出中 1 / 完成 0)
-    expect(section).toHaveTextContent(/注文/);
-    expect(section).toHaveTextContent(/抽出中/);
-    expect(section).toHaveTextContent(/完成/);
-
-    // 抽出中バッチに対する 完了 / 取消し ボタンが出る
-    expect(within(section).getByRole("button", { name: "完了" })).toBeEnabled();
-    expect(within(section).getByRole("button", { name: "取消し" })).toBeEnabled();
-
-    // 新規バッチ開始用の杯数選択 (1/2/3) と 開始 ボタン
-    expect(within(section).getByRole("button", { name: "1" })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "2" })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "3" })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "開始" })).toBeEnabled();
+    expect(within(lanesSection).getByRole("button", { name: "完了" })).toBeEnabled();
+    expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeEnabled();
   });
 
-  it("ready 余剰がある時に余剰削除ボタンが出る (なければ出ない)", async () => {
+  it("ProductionDashboard に余剰削除ボタンが ready 余剰時のみ出る", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
-    // まず 余剰なし (orderItemId 紐付きの ready のみ) で開く
     await act(async () => {
       ws.emitMessage({
         type: "SNAPSHOT",
@@ -202,18 +184,12 @@ describe("DripHome", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "アメリカーノ" })).toBeInTheDocument();
-    });
+    const dashboard = await waitFor(() =>
+      screen.getByRole("region", { name: "生産状況" }),
+    );
 
-    const section = screen
-      .getByRole("heading", { name: "アメリカーノ" })
-      .closest("section") as HTMLElement;
+    expect(within(dashboard).queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
 
-    // 余剰なしの状態では MenuSection 内の - ボタンは出ない
-    expect(within(section).queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
-
-    // 余剰 (ready かつ orderItemId=null) のユニットを追加
     await act(async () => {
       ws.emitMessage({
         type: "BREW_UNIT_UPDATED",
@@ -221,13 +197,12 @@ describe("DripHome", () => {
       });
     });
 
-    // 余剰削除ボタンが MenuSection 内に出現する
     await waitFor(() => {
-      expect(within(section).getByTitle("余剰を1件減らす")).toBeEnabled();
+      expect(within(dashboard).getByTitle("余剰を1件減らす")).toBeEnabled();
     });
   });
 
-  it("BREW_UNIT_DELETED で抽出中バッチが消えると 完了/取消し ボタンも消える", async () => {
+  it("BREW_UNIT_DELETED でアクティブレーンが消滅し、完了 / 取消 ボタンも消える", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
@@ -249,10 +224,37 @@ describe("DripHome", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "取消し" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("「+ レーン追加」でアイドルレーンが現れ、メニューと杯数を選んで「抽出開始」できる", async () => {
+    renderDrip();
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws.emitMessage({
+        type: "SNAPSHOT",
+        orders: [],
+        brewUnits: [],
+      });
     });
 
-    // 開始 ボタンはバッチの有無にかかわらず常時表示される (新規バッチ開始用)
-    expect(screen.getByRole("button", { name: "開始" })).toBeInTheDocument();
+    const lanesSection = await waitFor(() =>
+      screen.getByRole("region", { name: "抽出レーン" }),
+    );
+    // 初期はアクティブレーンなし、アイドルもなし
+    expect(within(lanesSection).queryByText(/レーン 1$/)).not.toBeInTheDocument();
+
+    // レーン追加
+    fireEvent.click(within(lanesSection).getByRole("button", { name: /レーン追加/ }));
+    expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
+
+    // メニュー選択
+    fireEvent.click(within(lanesSection).getByRole("button", { name: "アメリカーノ" }));
+
+    // 抽出開始 → タイマー設定中に遷移
+    fireEvent.click(within(lanesSection).getByRole("button", { name: "▶ 抽出開始" }));
+    expect(within(lanesSection).getByText("合計")).toBeInTheDocument();
   });
 });
