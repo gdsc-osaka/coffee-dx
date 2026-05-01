@@ -325,6 +325,10 @@ export default function DripHome({
 
       socket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
+        // onerror の後に onclose が必ず続くとは限らない（特定の Service Worker 経由や
+        // モバイルキャリアの中継機器で起こり得る）。明示的に close() を呼んで onclose 経路に
+        // 乗せる。既に CLOSED/CLOSING のソケットへの close() は no-op なので二重発火しない。
+        if (socket) socket.close();
       };
     };
 
