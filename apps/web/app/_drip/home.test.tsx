@@ -203,8 +203,12 @@ describe("DripHome", () => {
       expect(screen.getByRole("heading", { name: "アメリカーノ" })).toBeInTheDocument();
     });
 
-    // 余剰なしの状態では - ボタンは出ない
-    expect(screen.queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
+    const section = screen
+      .getByRole("heading", { name: "アメリカーノ" })
+      .closest("section") as HTMLElement;
+
+    // 余剰なしの状態では MenuSection 内の - ボタンは出ない
+    expect(within(section).queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
 
     // 余剰 (ready かつ orderItemId=null) のユニットを追加
     await act(async () => {
@@ -214,9 +218,9 @@ describe("DripHome", () => {
       });
     });
 
-    // 余剰削除ボタンが出現する
+    // 余剰削除ボタンが MenuSection 内に出現する
     await waitFor(() => {
-      expect(screen.getByTitle("余剰を1件減らす")).toBeEnabled();
+      expect(within(section).getByTitle("余剰を1件減らす")).toBeEnabled();
     });
   });
 

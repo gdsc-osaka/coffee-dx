@@ -3,6 +3,7 @@ import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 import { MenuSection } from "./components/MenuSection";
+import { ProductionDashboard } from "./components/ProductionDashboard";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -67,6 +68,17 @@ export type MenuBrewSummary = {
   /** ready かつ未紐付き（余剰削除可能）な杯数 */
   surplus: number;
   batches: BrewBatchSummary[];
+};
+
+export type ProductionIndicator = {
+  menuItemId: string;
+  menuItemName: string;
+  /** 今後抽出すべき杯数: max(0, ordered - ready - brewing) */
+  shortage: number;
+  /** ストック余裕: max(0, ready + brewing - ordered) */
+  extra: number;
+  /** ready かつ未紐付き（= 余剰削除可能）な杯数 */
+  surplus: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -362,6 +374,16 @@ export default function DripHome({
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
   }, [ordersById, brewUnitsById, menus]);
 
+  const productionIndicators = useMemo((): ProductionIndicator[] => {
+    return menuSummaries.map((m) => ({
+      menuItemId: m.menuItemId,
+      menuItemName: m.menuItemName,
+      shortage: Math.max(0, m.ordered - m.ready - m.brewing),
+      extra: Math.max(0, m.ready + m.brewing - m.ordered),
+      surplus: m.surplus,
+    }));
+  }, [menuSummaries]);
+
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
@@ -392,29 +414,39 @@ export default function DripHome({
       </header>
 
       {/* Content */}
-      <div className="flex-1 sm:overflow-x-auto pb-10">
+      <div className="flex-1 flex flex-col pb-10">
         {!isSnapshotLoaded ? (
           <p className="px-6 py-10 text-sm text-stone-400 animate-pulse">読み込み中...</p>
         ) : (
-          <div className="flex flex-col gap-8 px-4 py-6 sm:flex-row sm:h-full sm:px-8 sm:py-10 sm:gap-12 sm:min-w-max">
-            {menuSummaries.map((menu) => (
-              <MenuSection
-                key={menu.menuItemId}
-                menu={menu}
-                eventId={eventId}
-                count={countByMenu[menu.menuItemId] ?? 1}
-                onCountChange={(n) =>
-                  setCountByMenu((prev) => ({
-                    ...prev,
-                    [menu.menuItemId]: n,
-                  }))
-                }
-                submittingBatchId={submittingBatchId as string | null}
-                submittingIntent={submittingIntent as string | null}
-                submittingMenuId={submittingMenuId as string | null}
-              />
-            ))}
-          </div>
+          <>
+            <ProductionDashboard
+              indicators={productionIndicators}
+              eventId={eventId}
+              submittingIntent={submittingIntent as string | null}
+              submittingMenuId={submittingMenuId as string | null}
+            />
+            <div className="sm:overflow-x-auto">
+              <div className="flex flex-col gap-8 px-4 py-6 sm:flex-row sm:h-full sm:px-8 sm:py-10 sm:gap-12 sm:min-w-max">
+                {menuSummaries.map((menu) => (
+                  <MenuSection
+                    key={menu.menuItemId}
+                    menu={menu}
+                    eventId={eventId}
+                    count={countByMenu[menu.menuItemId] ?? 1}
+                    onCountChange={(n) =>
+                      setCountByMenu((prev) => ({
+                        ...prev,
+                        [menu.menuItemId]: n,
+                      }))
+                    }
+                    submittingBatchId={submittingBatchId as string | null}
+                    submittingIntent={submittingIntent as string | null}
+                    submittingMenuId={submittingMenuId as string | null}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
         )}
 
         {actionData && !actionData.ok && (
