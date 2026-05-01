@@ -546,7 +546,10 @@ function MenuSection({
               <span className="w-4 h-4 rounded-full bg-orange-400 animate-pulse shrink-0" />
               <span className="text-xl sm:text-2xl font-bold text-stone-700 flex items-center">
                 抽出中
-                <span className="text-orange-600 font-black text-4xl sm:text-5xl mx-2 sm:mx-3">{batch.count}</span>杯
+                <span className="text-orange-600 font-black text-4xl sm:text-5xl mx-2 sm:mx-3">
+                  {batch.count}
+                </span>
+                杯
               </span>
               <div className="ml-auto flex gap-2 sm:gap-3">
                 <Form method="post">
