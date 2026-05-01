@@ -4,14 +4,13 @@ import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 import { ProductionDashboard } from "./components/ProductionDashboard";
 import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
-import type { LaneIdleState, LanePendingState } from "./components/LaneIdle";
+import type { LaneIdleState } from "./components/LaneIdle";
 import { SoundToggle } from "./components/SoundToggle";
-import { AddLaneButton } from "./components/AddLaneButton";
 import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
 
-/** 物理ドリッパー想定の初期レーン数。「+ レーン追加」「× 削除」で運用に応じて増減する */
-const INITIAL_LANE_COUNT = 3;
-type LaneSlot = LaneIdleState | LanePendingState | LaneActiveDescriptor;
+/** 物理ドリッパー数 = 固定レーン数。全端末で共通の表示にするため固定値で運用する */
+const LANE_COUNT = 3;
+type LaneSlot = LaneIdleState | LaneActiveDescriptor;
 const buildIdleSlot = (): LaneIdleState => ({
   kind: "idle",
   menuItemId: null,
@@ -50,8 +49,12 @@ type BrewUnitData = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
-  /** ドリップ係が抽出開始時に指定したタイマー秒数。NULL は未指定。 */
+  /** ドリップ係が指定したタイマー秒数。NULL はタイマー未設定。 */
   targetDurationSec: number | null;
+  /** タイマー Start 時刻 (ISO 8601)。NULL はタイマー未開始。 */
+  timerStartedAt: string | null;
+  /** 物理ドリッパー（レーン枠）の位置 (0 始まり)。 */
+  laneIndex: number;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -135,12 +138,16 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof menuItemId !== "string" || !menuItemId || count < 1) {
           return { ok: false, error: "入力値が不正です" };
         }
+        const rawLane = formData.get("laneIndex");
+        const parsedLane = rawLane == null ? NaN : Number(rawLane);
+        const laneIndex =
+          Number.isFinite(parsedLane) && parsedLane >= 0 ? Math.floor(parsedLane) : 0;
         const rawDuration = formData.get("targetDurationSec");
         const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
         const targetDurationSec =
           Number.isFinite(parsedDuration) && parsedDuration > 0 ? Math.floor(parsedDuration) : null;
         await callOrderDO(stub, eventId, "/do/brew-units", {
-          body: { menuItemId, count, targetDurationSec },
+          body: { menuItemId, count, laneIndex, targetDurationSec },
         });
         return { ok: true, intent };
       }
@@ -165,6 +172,23 @@ export async function action({ request, context }: Route.ActionArgs) {
           stub,
           eventId,
           `/do/brew-units/batch/${encodeURIComponent(batchId)}/cancel`,
+        );
+        return { ok: true, intent };
+      }
+      case "brew-set-timer": {
+        const batchId = formData.get("batchId");
+        if (typeof batchId !== "string" || !batchId) {
+          return { ok: false, error: "batchId が不正です" };
+        }
+        const rawDuration = formData.get("targetDurationSec");
+        const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
+        const targetDurationSec =
+          Number.isFinite(parsedDuration) && parsedDuration > 0 ? Math.floor(parsedDuration) : null;
+        await callOrderDO(
+          stub,
+          eventId,
+          `/do/brew-units/batch/${encodeURIComponent(batchId)}/timer`,
+          { body: { targetDurationSec } },
         );
         return { ok: true, intent };
       }
@@ -209,12 +233,13 @@ export default function DripHome({
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
 
   /**
-   * レーンスロット。idle / pending / active を独立に持つ。
-   * 抽出が完了してもスロット自体は消えず idle に戻る（物理ドリッパーに対応する設計）。
-   * 初期は INITIAL_LANE_COUNT 個。「+ レーン追加」「× 削除」で動的に増減する。
+   * 固定 LANE_COUNT 個のレーンスロット。各スロットは独立に idle / active を持つ。
+   * 抽出完了/取消後もスロット自体は消えず idle に戻る（物理ドリッパー想定）。
+   * laneIndex は DB の brew_units.lane_index で永続化されるので、全端末で
+   * 同じバッチが同じスロットに表示される。
    */
   const [laneSlots, setLaneSlots] = useState<LaneSlot[]>(() =>
-    Array.from({ length: INITIAL_LANE_COUNT }, buildIdleSlot),
+    Array.from({ length: LANE_COUNT }, buildIdleSlot),
   );
 
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
@@ -449,39 +474,45 @@ export default function DripHome({
         return {
           kind: "active",
           batchId,
+          menuItemId: first.menuItemId,
           menuItemName: first.menuItemName,
           count: units.length,
           createdAt: first.createdAt,
           targetDurationSec: first.targetDurationSec,
+          timerStartedAt: first.timerStartedAt,
+          laneIndex: first.laneIndex,
         };
       })
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [brewUnitsById]);
 
-  // brewing バッチをレーンスロットへ自動割当する。
+  // brewing バッチを laneIndex ベースでスロットへ反映する（端末間で表示位置が一致）。
   // - active スロットの batchId が brewing でなくなったら idle に戻す（完了/取消で消えない）
-  // - 未紐付きの brewing バッチを最も若い idle スロットへ詰める
-  // - active スロットの最新メタ（count・targetDurationSec 等）も同期する
+  // - brewing バッチは batch.laneIndex に対応するスロットへ反映
+  // - 同一スロットに 2 バッチが衝突した場合は createdAt 昇順で先勝ち（後勝ちで上書きしない）
+  // - laneIndex が LANE_COUNT を超えるバッチは表示しない
   useEffect(() => {
     setLaneSlots((prev) => {
       const next = [...prev];
       const batchById = new Map(activeBatches.map((b) => [b.batchId, b]));
       let changed = false;
 
+      // active スロットの解放 / メタ追従
       for (let i = 0; i < next.length; i++) {
         const slot = next[i];
         if (slot.kind !== "active") continue;
         const batch = batchById.get(slot.batchId);
-        if (!batch) {
+        if (!batch || batch.laneIndex !== i) {
+          // バッチが消えた、または別レーンに移ったので解放
           next[i] = buildIdleSlot();
           changed = true;
         } else if (batch !== slot) {
-          // メタが更新されているケース（targetDurationSec が後から付くなど）に追従
           if (
             batch.count !== slot.count ||
             batch.menuItemName !== slot.menuItemName ||
             batch.createdAt !== slot.createdAt ||
-            batch.targetDurationSec !== slot.targetDurationSec
+            batch.targetDurationSec !== slot.targetDurationSec ||
+            batch.timerStartedAt !== slot.timerStartedAt
           ) {
             next[i] = batch;
             changed = true;
@@ -489,14 +520,16 @@ export default function DripHome({
         }
       }
 
+      // 未紐付きバッチを laneIndex のスロットへ反映
       const occupied = new Set(
         next.filter((s): s is LaneActiveDescriptor => s.kind === "active").map((s) => s.batchId),
       );
       for (const batch of activeBatches) {
         if (occupied.has(batch.batchId)) continue;
-        const idleIdx = next.findIndex((s) => s.kind === "idle");
-        if (idleIdx < 0) break; // 空きスロット無し（レーン超過）
-        next[idleIdx] = batch;
+        const idx = batch.laneIndex;
+        if (idx < 0 || idx >= next.length) continue; // レーン範囲外のバッチは表示しない
+        if (next[idx].kind === "active") continue; // 同レーンに先客がいれば後勝ちしない
+        next[idx] = batch;
         occupied.add(batch.batchId);
         changed = true;
       }
@@ -505,36 +538,20 @@ export default function DripHome({
     });
   }, [activeBatches]);
 
-  const updateLaneState = useCallback(
-    (laneIndex: number, nextState: LaneIdleState | LanePendingState) => {
-      setLaneSlots((prev) => {
-        const arr = [...prev];
-        arr[laneIndex] = nextState;
-        return arr;
-      });
-    },
-    [],
-  );
-
-  /** Start 押下時：スロットを idle に戻す。BREW_UNITS_CREATED 受信で再度 active に切替わる */
-  const handleStart = useCallback((laneIndex: number) => {
+  const updateLaneState = useCallback((laneIndex: number, nextState: LaneIdleState) => {
     setLaneSlots((prev) => {
       const arr = [...prev];
-      arr[laneIndex] = buildIdleSlot();
+      arr[laneIndex] = nextState;
       return arr;
     });
   }, []);
 
-  const addLane = useCallback(() => {
-    setLaneSlots((prev) => [...prev, buildIdleSlot()]);
-  }, []);
-
-  /** idle 状態のスロットだけを削除可能（pending / active のスロットは無視） */
-  const removeLane = useCallback((laneIndex: number) => {
-    setLaneSlots((prev) => {
-      if (prev[laneIndex]?.kind !== "idle") return prev;
-      return prev.filter((_, i) => i !== laneIndex);
-    });
+  /**
+   * 抽出開始 submit 時のフック。laneIndex は form の hidden input で送信されるため
+   * 楽観的な切替えはしない。WS で BREW_UNITS_CREATED を受信した時点で active 化される。
+   */
+  const handleStart = useCallback((_laneIndex: number) => {
+    // no-op: 全端末で同じスロットに active 化されるよう、WS 確定主義を採用
   }, []);
 
   return (
@@ -587,30 +604,32 @@ export default function DripHome({
                     batchId !== null &&
                     submittingBatchId === batchId &&
                     submittingIntent === "brew-cancel";
+                  const isSettingTimer =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-set-timer";
                   const isStarting =
                     submittingIntent === "brew-start" &&
-                    slot.kind === "pending" &&
+                    slot.kind === "idle" &&
                     submittingMenuId === slot.menuItemId;
                   return (
                     <div key={idx} className="w-[22rem] sm:w-[26rem] shrink-0">
                       <BrewLane
                         laneNumber={laneNumber}
+                        laneIndex={idx}
                         state={slot}
                         menus={menus}
                         eventId={eventId}
                         onChangeState={(next) => updateLaneState(idx, next)}
-                        onRemove={() => removeLane(idx)}
                         onStart={() => handleStart(idx)}
                         isStarting={isStarting}
                         isCompleting={isCompleting}
                         isCancelling={isCancelling}
+                        isSettingTimer={isSettingTimer}
                       />
                     </div>
                   );
                 })}
-                <div className="w-[22rem] sm:w-[26rem] shrink-0">
-                  <AddLaneButton onAdd={addLane} />
-                </div>
               </div>
             </section>
           </>

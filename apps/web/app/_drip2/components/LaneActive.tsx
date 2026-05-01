@@ -8,40 +8,46 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
-import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
-import { useTimerEndAlert } from "../hooks/useTimerEndAlert";
-import { formatDuration } from "../utils/formatDuration";
+import { parseJst } from "../utils/parseJst";
 import { SwipeToConfirm } from "./SwipeToConfirm";
 import { LongPressButton } from "./LongPressButton";
+import { LaneTimer } from "./LaneTimer";
 
+/**
+ * 抽出中レーン。完了スワイプ・取消長押しはタイマー状態と独立に常時表示。
+ * タイマーは内蔵 LaneTimer に委譲し、未設定 / 動作中 / 終了の 3 状態を独立管理。
+ */
 export function LaneActive({
   laneNumber,
   menuItemName,
   count,
   batchId,
-  createdAt,
   targetDurationSec,
+  timerStartedAt,
   eventId,
   isCompleting,
   isCancelling,
+  isSettingTimer,
 }: {
   laneNumber: number;
   menuItemName: string;
   count: number;
   batchId: string;
-  createdAt: string;
   targetDurationSec: number | null;
+  timerStartedAt: string | null;
   eventId: string;
   isCompleting: boolean;
   isCancelling: boolean;
+  isSettingTimer: boolean;
 }) {
-  const elapsed = useElapsedSeconds(createdAt);
-  const remaining = targetDurationSec !== null ? targetDurationSec - elapsed : null;
-  const isFinished = remaining !== null && remaining <= 0;
-  useTimerEndAlert(remaining);
-
   const submit = useSubmit();
   const [cancelOpen, setCancelOpen] = useState(false);
+
+  // タイマー終了状態（点滅 CSS のトリガー）。timer 未設定時は false。
+  const isFinished =
+    targetDurationSec !== null &&
+    timerStartedAt !== null &&
+    Math.floor((Date.now() - parseJst(timerStartedAt)) / 1000) >= targetDurationSec;
 
   const handleComplete = useCallback(() => {
     const fd = new FormData();
@@ -77,29 +83,13 @@ export function LaneActive({
         </span>
       </div>
 
-      <div className="flex flex-col items-center justify-center py-6 bg-stone-50 rounded-2xl">
-        {remaining !== null ? (
-          <>
-            <span className="text-xs font-bold text-stone-400 mb-1">
-              {isFinished ? "超過" : "残り"}
-            </span>
-            <span
-              className={`text-6xl font-black tabular-nums ${
-                isFinished ? "text-red-600" : "text-stone-800"
-              }`}
-            >
-              {formatDuration(remaining)}
-            </span>
-          </>
-        ) : (
-          <>
-            <span className="text-xs font-bold text-stone-400 mb-1">経過</span>
-            <span className="text-6xl font-black tabular-nums text-stone-800">
-              {formatDuration(elapsed)}
-            </span>
-          </>
-        )}
-      </div>
+      <LaneTimer
+        batchId={batchId}
+        eventId={eventId}
+        targetDurationSec={targetDurationSec}
+        timerStartedAt={timerStartedAt}
+        isPersisting={isSettingTimer}
+      />
 
       <div className="flex flex-col gap-2">
         <SwipeToConfirm

@@ -69,31 +69,35 @@ const baseProps = {
   menuItemName: "アメリカーノ",
   count: 2,
   batchId: "batch-1",
-  createdAt: "2026-04-18 12:00:00",
   eventId: "2026-04-18",
   isCompleting: false,
   isCancelling: false,
+  isSettingTimer: false,
 };
 
 describe("LaneActive", () => {
   beforeEach(() => {
     submitFn.mockClear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    // createdAt の +5 秒後を「現在時刻」にする
+    // timerStartedAt の +5 秒後を「現在時刻」にする
     vi.setSystemTime(new Date("2026-04-18T12:00:05+09:00"));
   });
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("targetDurationSec が指定されているとき残り時間がカウントダウン表示される", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+  it("タイマー設定済み（targetDurationSec + timerStartedAt あり）で残り時間がカウントダウン表示", () => {
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     expect(screen.getByText("00:55")).toBeInTheDocument();
     expect(screen.getByText("残り")).toBeInTheDocument();
   });
 
   it("setInterval 経過で残り時間が減る", async () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     expect(screen.getByText("00:55")).toBeInTheDocument();
 
     await act(async () => {
@@ -102,21 +106,42 @@ describe("LaneActive", () => {
     expect(screen.getByText("00:53")).toBeInTheDocument();
   });
 
-  it("targetDurationSec=null のとき経過時間（カウントアップ）が表示される", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={null} />);
-    expect(screen.getByText("00:05")).toBeInTheDocument();
-    expect(screen.getByText("経過")).toBeInTheDocument();
+  it("タイマー未設定 (timerStartedAt=null) のときはタイマー UI（▶ タイマー開始）が表示", () => {
+    render(<LaneActive {...baseProps} targetDurationSec={null} timerStartedAt={null} />);
+    expect(screen.getByRole("button", { name: "▶ タイマー開始" })).toBeInTheDocument();
   });
 
-  it("残り時間が 0 以下のとき data-finished='true' になり点滅 CSS が適用される", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={3} />);
-    const lane = screen.getByText("超過").closest("[data-finished]");
+  it("残り時間が 0 以下のとき data-finished='true' になり、再設定 UI が出る", () => {
+    render(
+      <LaneActive {...baseProps} targetDurationSec={3} timerStartedAt="2026-04-18 12:00:00" />,
+    );
+    expect(screen.getByText(/タイマー終了/)).toBeInTheDocument();
+    const lane = screen.getByText(/タイマー終了/).closest("[data-finished]");
     expect(lane).toHaveAttribute("data-finished", "true");
-    expect(screen.getByText("-00:02")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "▶ タイマーを再設定" })).toBeInTheDocument();
+  });
+
+  it("タイマー未設定でも完了 / 取消 ボタンは表示される", () => {
+    render(<LaneActive {...baseProps} targetDurationSec={null} timerStartedAt={null} />);
+    expect(screen.getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /取消 \(1秒長押し\)/ })).toBeInTheDocument();
+  });
+
+  it("LaneTimer の +1分 → タイマー開始で useSubmit が brew-set-timer を 60s で送信", () => {
+    render(<LaneActive {...baseProps} targetDurationSec={null} timerStartedAt={null} />);
+    fireEvent.click(screen.getByRole("button", { name: "+1分" }));
+    fireEvent.click(screen.getByRole("button", { name: "▶ タイマー開始" }));
+    expect(submitFn).toHaveBeenCalledTimes(1);
+    const [fd] = submitFn.mock.calls[0];
+    expect(fd.get("intent")).toBe("brew-set-timer");
+    expect(fd.get("batchId")).toBe("batch-1");
+    expect(fd.get("targetDurationSec")).toBe("60");
   });
 
   it("取消ボタンを長押しすると確認 Dialog が開く", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     expect(screen.queryByRole("button", { name: "取消する" })).not.toBeInTheDocument();
 
     const cancelBtn = screen.getByRole("button", { name: /取消/ });
@@ -130,7 +155,9 @@ describe("LaneActive", () => {
   });
 
   it("Dialog の「取消する」を押すと useSubmit が brew-cancel で呼ばれる", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     const cancelBtn = screen.getByRole("button", { name: /取消/ });
     dispatchPointer(cancelBtn, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
     act(() => {
@@ -146,7 +173,9 @@ describe("LaneActive", () => {
   });
 
   it("Dialog の「いいえ」で閉じても submit はされない", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     const cancelBtn = screen.getByRole("button", { name: /取消/ });
     dispatchPointer(cancelBtn, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
     act(() => {
@@ -159,7 +188,9 @@ describe("LaneActive", () => {
   });
 
   it("スワイプを 60% 以上動かして離すと useSubmit が brew-complete で呼ばれる", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} />);
+    render(
+      <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
+    );
     const swipe = screen.getByRole("button", { name: /スワイプで完了/ });
     setOffsetWidth(swipe, 200);
 
@@ -174,7 +205,14 @@ describe("LaneActive", () => {
   });
 
   it("disabled (isCompleting) のときスワイプしても submit されない", () => {
-    render(<LaneActive {...baseProps} targetDurationSec={60} isCompleting />);
+    render(
+      <LaneActive
+        {...baseProps}
+        targetDurationSec={60}
+        timerStartedAt="2026-04-18 12:00:00"
+        isCompleting
+      />,
+    );
     const swipe = screen.getByRole("button", { name: /スワイプで完了/ });
     setOffsetWidth(swipe, 200);
 

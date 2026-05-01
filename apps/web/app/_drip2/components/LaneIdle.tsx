@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Form } from "react-router";
 
 export type LaneIdleState = {
   kind: "idle";
@@ -6,42 +6,31 @@ export type LaneIdleState = {
   count: number;
 };
 
-export type LanePendingState = {
-  kind: "pending";
-  menuItemId: string;
-  count: number;
-  durationSec: number;
-};
-
 export function LaneIdle({
   laneNumber,
+  laneIndex,
   state,
   menus,
+  eventId,
+  isStarting,
   onChangeState,
-  onRemove,
+  onStart,
 }: {
   laneNumber: number;
+  /** DB に永続化するレーン位置 (0 始まり)。laneNumber は 1 始まりの表示用 */
+  laneIndex: number;
   state: LaneIdleState;
   menus: Array<{ id: string; name: string }>;
-  onChangeState: (next: LaneIdleState | LanePendingState) => void;
-  onRemove: () => void;
+  eventId: string;
+  isStarting: boolean;
+  onChangeState: (next: LaneIdleState) => void;
+  onStart: () => void;
 }) {
   const canStart = state.menuItemId !== null && state.count >= 1;
 
   return (
     <div className="bg-white border-2 border-stone-200 rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm">
-      <div className="flex items-center">
-        <span className="text-sm font-bold text-stone-400">レーン {laneNumber}</span>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="ml-auto w-9 h-9 flex items-center justify-center rounded-full text-stone-400 hover:bg-stone-100 hover:text-stone-600 transition-colors"
-          title="このレーンを削除"
-          aria-label="このレーンを削除"
-        >
-          <X className="w-5 h-5" aria-hidden="true" />
-        </button>
-      </div>
+      <span className="text-sm font-bold text-stone-400">レーン {laneNumber}</span>
 
       <div className="flex flex-col gap-2">
         <span className="text-sm font-bold text-stone-500">メニューを選択</span>
@@ -90,22 +79,20 @@ export function LaneIdle({
         </div>
       </div>
 
-      <button
-        type="button"
-        disabled={!canStart}
-        onClick={() => {
-          if (state.menuItemId === null) return;
-          onChangeState({
-            kind: "pending",
-            menuItemId: state.menuItemId,
-            count: state.count,
-            durationSec: 0,
-          });
-        }}
-        className="w-full py-4 text-xl font-black bg-amber-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
-      >
-        ▶ 抽出開始
-      </button>
+      <Form method="post" onSubmit={onStart}>
+        <input type="hidden" name="intent" value="brew-start" />
+        <input type="hidden" name="eventId" value={eventId} />
+        <input type="hidden" name="menuItemId" value={state.menuItemId ?? ""} />
+        <input type="hidden" name="count" value={state.count} />
+        <input type="hidden" name="laneIndex" value={laneIndex} />
+        <button
+          type="submit"
+          disabled={!canStart || isStarting}
+          className="w-full py-4 text-xl font-black bg-amber-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
+        >
+          {isStarting ? "..." : "▶ 抽出開始"}
+        </button>
+      </Form>
     </div>
   );
 }

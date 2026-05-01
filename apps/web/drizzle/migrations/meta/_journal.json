@@ -36,6 +36,20 @@
       "when": 1777663690483,
       "tag": "0004_chubby_lethal_legion",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1777676910675,
+      "tag": "0005_omniscient_obadiah_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1777677927082,
+      "tag": "0006_odd_venus",
+      "breakpoints": true
     }
   ]
 }

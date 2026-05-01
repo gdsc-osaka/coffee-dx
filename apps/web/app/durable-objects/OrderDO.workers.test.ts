@@ -178,17 +178,65 @@ describe("OrderDO", () => {
     expect(created.type).toBe("BREW_UNITS_CREATED");
     expect(created.brewUnits).toHaveLength(2);
     expect(created.brewUnits.every((u: any) => u.status === "brewing")).toBe(true);
-    // targetDurationSec を渡さなかったので NULL で配信される
+    // targetDurationSec / timerStartedAt を渡さなかったのでいずれも NULL で配信される
     expect(created.brewUnits.every((u: any) => u.targetDurationSec === null)).toBe(true);
+    expect(created.brewUnits.every((u: any) => u.timerStartedAt === null)).toBe(true);
 
     // DB 確認: business_date は body ではなく x-event-id から書き込まれる
     const units = await db.select().from(brewUnits);
     expect(units).toHaveLength(2);
     expect(units.every((u) => u.businessDate === eventId)).toBe(true);
     expect(units.every((u) => u.targetDurationSec === null)).toBe(true);
+    expect(units.every((u) => u.timerStartedAt === null)).toBe(true);
   });
 
-  it("targetDurationSec を指定して BrewUnit を生成すると DO 配信と DB の双方に保存される", async () => {
+  it("laneIndex を指定して BrewUnit を生成すると DO 配信と DB の双方に保存される（全端末で同レーン表示用）", async () => {
+    await insertMenu("m1", "coffee");
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    await queue.next(); // SNAPSHOT
+
+    const res = await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 2, laneIndex: 2 }),
+      }),
+    );
+    expect(res.status).toBe(204);
+
+    const created = await queue.next();
+    expect(created.brewUnits).toHaveLength(2);
+    expect(created.brewUnits.every((u: any) => u.laneIndex === 2)).toBe(true);
+
+    const units = await db.select().from(brewUnits);
+    expect(units.every((u) => u.laneIndex === 2)).toBe(true);
+  });
+
+  it("laneIndex 未指定や不正値のときは 0 として保存される", async () => {
+    await insertMenu("m1", "coffee");
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    await queue.next(); // SNAPSHOT
+
+    await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 1 }),
+      }),
+    );
+    await queue.next();
+
+    const units = await db.select().from(brewUnits);
+    expect(units[0].laneIndex).toBe(0);
+  });
+
+  it("targetDurationSec を指定して BrewUnit を生成すると targetDurationSec と timerStartedAt の両方が保存される", async () => {
     await insertMenu("m1", "coffee");
 
     const ws = await connectWebSocket();
@@ -209,10 +257,83 @@ describe("OrderDO", () => {
     expect(created.type).toBe("BREW_UNITS_CREATED");
     expect(created.brewUnits).toHaveLength(1);
     expect(created.brewUnits[0].targetDurationSec).toBe(210);
+    // 抽出開始時に timer も同時に開始する（後付け再設定は別エンドポイント）
+    expect(created.brewUnits[0].timerStartedAt).not.toBeNull();
 
     const units = await db.select().from(brewUnits);
     expect(units).toHaveLength(1);
     expect(units[0].targetDurationSec).toBe(210);
+    expect(units[0].timerStartedAt).not.toBeNull();
+  });
+
+  it("brew-units/batch/:id/timer エンドポイントでタイマーを後付け / 再設定できる", async () => {
+    await insertMenu("m1", "coffee");
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    await queue.next(); // SNAPSHOT
+
+    // タイマーなしでバッチ作成
+    await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 1 }),
+      }),
+    );
+    const created = await queue.next();
+    expect(created.brewUnits[0].timerStartedAt).toBeNull();
+    const batchId = created.brewUnits[0].batchId;
+
+    // /timer エンドポイントで後付け設定
+    const setRes = await stub.fetch(
+      new Request(`http://localhost/do/brew-units/batch/${batchId}/timer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ targetDurationSec: 120 }),
+      }),
+    );
+    expect(setRes.status).toBe(204);
+
+    const updated = await queue.next();
+    expect(updated.type).toBe("BREW_UNIT_UPDATED");
+    expect(updated.brewUnit.targetDurationSec).toBe(120);
+    expect(updated.brewUnit.timerStartedAt).not.toBeNull();
+
+    const units1 = await db.select().from(brewUnits);
+    expect(units1[0].targetDurationSec).toBe(120);
+    const firstStartedAt = units1[0].timerStartedAt;
+    expect(firstStartedAt).not.toBeNull();
+
+    // 再設定でタイマーがリスタート (timerStartedAt が更新される)
+    await new Promise((r) => setTimeout(r, 10));
+    const resetRes = await stub.fetch(
+      new Request(`http://localhost/do/brew-units/batch/${batchId}/timer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ targetDurationSec: 60 }),
+      }),
+    );
+    expect(resetRes.status).toBe(204);
+    await queue.next(); // BREW_UNIT_UPDATED
+
+    const units2 = await db.select().from(brewUnits);
+    expect(units2[0].targetDurationSec).toBe(60);
+    expect(units2[0].timerStartedAt).not.toBe(firstStartedAt);
+
+    // targetDurationSec=null でタイマー解除
+    const clearRes = await stub.fetch(
+      new Request(`http://localhost/do/brew-units/batch/${batchId}/timer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ targetDurationSec: null }),
+      }),
+    );
+    expect(clearRes.status).toBe(204);
+    const cleared = await queue.next();
+    expect(cleared.brewUnit.targetDurationSec).toBeNull();
+    expect(cleared.brewUnit.timerStartedAt).toBeNull();
   });
 
   it("targetDurationSec が 0 以下や無効値のときは NULL として保存される", async () => {

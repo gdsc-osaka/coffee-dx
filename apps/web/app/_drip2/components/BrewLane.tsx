@@ -1,65 +1,58 @@
-import type { LaneIdleState, LanePendingState } from "./LaneIdle";
+import type { LaneIdleState } from "./LaneIdle";
 import { LaneIdle } from "./LaneIdle";
-import { LanePending } from "./LanePending";
 import { LaneActive } from "./LaneActive";
 
 export type LaneActiveDescriptor = {
   kind: "active";
   batchId: string;
+  menuItemId: string;
   menuItemName: string;
   count: number;
   createdAt: string;
   targetDurationSec: number | null;
+  timerStartedAt: string | null;
+  /** DB の brew_units.lane_index。全端末で同じレーン位置に表示するため使う */
+  laneIndex: number;
 };
 
-export type BrewLaneState = LaneIdleState | LanePendingState | LaneActiveDescriptor;
+export type BrewLaneState = LaneIdleState | LaneActiveDescriptor;
 
 export function BrewLane({
   laneNumber,
+  laneIndex,
   state,
   menus,
   eventId,
   onChangeState,
-  onRemove,
   onStart,
   isStarting,
   isCompleting,
   isCancelling,
+  isSettingTimer,
 }: {
   laneNumber: number;
+  laneIndex: number;
   state: BrewLaneState;
   menus: Array<{ id: string; name: string }>;
   eventId: string;
-  onChangeState: (next: LaneIdleState | LanePendingState) => void;
-  /** idle 状態のレーンの「× 削除」コールバック。idle 以外の状態では呼ばれない */
-  onRemove: () => void;
+  onChangeState: (next: LaneIdleState) => void;
   onStart: () => void;
   isStarting: boolean;
   isCompleting: boolean;
   isCancelling: boolean;
+  isSettingTimer: boolean;
 }) {
   if (state.kind === "idle") {
     return (
       <LaneIdle
         laneNumber={laneNumber}
+        laneIndex={laneIndex}
         state={state}
         menus={menus}
-        onChangeState={onChangeState}
-        onRemove={onRemove}
-      />
-    );
-  }
-  if (state.kind === "pending") {
-    const menuItemName = menus.find((m) => m.id === state.menuItemId)?.name ?? state.menuItemId;
-    return (
-      <LanePending
-        laneNumber={laneNumber}
-        state={state}
-        menuItemName={menuItemName}
         eventId={eventId}
+        isStarting={isStarting}
         onChangeState={onChangeState}
         onStart={onStart}
-        isStarting={isStarting}
       />
     );
   }
@@ -69,11 +62,12 @@ export function BrewLane({
       menuItemName={state.menuItemName}
       count={state.count}
       batchId={state.batchId}
-      createdAt={state.createdAt}
       targetDurationSec={state.targetDurationSec}
+      timerStartedAt={state.timerStartedAt}
       eventId={eventId}
       isCompleting={isCompleting}
       isCancelling={isCancelling}
+      isSettingTimer={isSettingTimer}
     />
   );
 }
