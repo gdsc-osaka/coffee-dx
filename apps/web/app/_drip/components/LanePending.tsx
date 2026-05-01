@@ -65,9 +65,7 @@ export function LanePending({
         </button>
         <button
           type="button"
-          onClick={() =>
-            onChangeState({ ...state, durationSec: 0 })
-          }
+          onClick={() => onChangeState({ ...state, durationSec: 0 })}
           className="px-4 py-3 rounded-2xl bg-white border-2 border-stone-200 text-stone-500 font-bold hover:bg-stone-50 active:bg-stone-100 transition-colors"
         >
           リセット

@@ -27,8 +27,7 @@ export function ProductionDashboard({
             indicator={ind}
             eventId={eventId}
             isDecrementing={
-              submittingIntent === "menu-surplus-decrease" &&
-              submittingMenuId === ind.menuItemId
+              submittingIntent === "menu-surplus-decrease" && submittingMenuId === ind.menuItemId
             }
           />
         ))}
@@ -46,8 +45,7 @@ function ProductionRow({
   eventId: string;
   isDecrementing: boolean;
 }) {
-  const status =
-    indicator.shortage > 0 ? "shortage" : indicator.extra > 0 ? "extra" : "exact";
+  const status = indicator.shortage > 0 ? "shortage" : indicator.extra > 0 ? "extra" : "exact";
 
   return (
     <li className="flex flex-wrap items-center gap-3 py-2">

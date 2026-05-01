@@ -129,9 +129,7 @@ export async function action({ request, context }: Route.ActionArgs) {
         const rawDuration = formData.get("targetDurationSec");
         const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
         const targetDurationSec =
-          Number.isFinite(parsedDuration) && parsedDuration > 0
-            ? Math.floor(parsedDuration)
-            : null;
+          Number.isFinite(parsedDuration) && parsedDuration > 0 ? Math.floor(parsedDuration) : null;
         await callOrderDO(stub, eventId, "/do/brew-units", {
           body: { menuItemId, count, targetDurationSec },
         });
@@ -464,14 +462,9 @@ export default function DripHome({
     setLocalLanes((prev) => prev.filter((l) => l.id !== laneId));
   }, []);
 
-  const updateLaneState = useCallback(
-    (laneId: string, next: LaneIdleState | LanePendingState) => {
-      setLocalLanes((prev) =>
-        prev.map((l) => (l.id === laneId ? { ...l, state: next } : l)),
-      );
-    },
-    [],
-  );
+  const updateLaneState = useCallback((laneId: string, next: LaneIdleState | LanePendingState) => {
+    setLocalLanes((prev) => prev.map((l) => (l.id === laneId ? { ...l, state: next } : l)));
+  }, []);
 
   /** Start 押下時の楽観的削除：BREW_UNITS_CREATED 受信を待たずローカル枠を消す */
   const handleStart = useCallback((laneId: string) => {

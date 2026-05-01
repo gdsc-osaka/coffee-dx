@@ -70,8 +70,7 @@ export function SwipeToConfirm({
       } catch {
         // ignore
       }
-      const reached =
-        widthRef.current > 0 && deltaXRef.current >= widthRef.current * threshold;
+      const reached = widthRef.current > 0 && deltaXRef.current >= widthRef.current * threshold;
       updateDelta(0);
       if (reached) onConfirm();
     },

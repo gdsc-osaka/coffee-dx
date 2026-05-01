@@ -49,8 +49,7 @@ export function BrewLane({
     );
   }
   if (state.kind === "pending") {
-    const menuItemName =
-      menus.find((m) => m.id === state.menuItemId)?.name ?? state.menuItemId;
+    const menuItemName = menus.find((m) => m.id === state.menuItemId)?.name ?? state.menuItemId;
     return (
       <LanePending
         laneNumber={laneNumber}

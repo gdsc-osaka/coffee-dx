@@ -53,25 +53,19 @@ describe("LanePending", () => {
   it("+1分ボタンを押すと onChangeState が durationSec+60 で呼ばれる", () => {
     const { onChangeState } = setup(30);
     fireEvent.click(screen.getByRole("button", { name: "+1分" }));
-    expect(onChangeState).toHaveBeenCalledWith(
-      expect.objectContaining({ durationSec: 90 }),
-    );
+    expect(onChangeState).toHaveBeenCalledWith(expect.objectContaining({ durationSec: 90 }));
   });
 
   it("+3分ボタンを押すと onChangeState が durationSec+180 で呼ばれる", () => {
     const { onChangeState } = setup(0);
     fireEvent.click(screen.getByRole("button", { name: "+3分" }));
-    expect(onChangeState).toHaveBeenCalledWith(
-      expect.objectContaining({ durationSec: 180 }),
-    );
+    expect(onChangeState).toHaveBeenCalledWith(expect.objectContaining({ durationSec: 180 }));
   });
 
   it("リセットボタンを押すと durationSec=0 で onChangeState が呼ばれる", () => {
     const { onChangeState } = setup(180);
     fireEvent.click(screen.getByRole("button", { name: "リセット" }));
-    expect(onChangeState).toHaveBeenCalledWith(
-      expect.objectContaining({ durationSec: 0 }),
-    );
+    expect(onChangeState).toHaveBeenCalledWith(expect.objectContaining({ durationSec: 0 }));
   });
 
   it("合計時間が MM:SS で表示される", () => {

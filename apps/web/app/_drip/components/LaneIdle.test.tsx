@@ -46,9 +46,7 @@ describe("LaneIdle", () => {
   it("杯数ボタンを押すと onChangeState で count が変わる", () => {
     const { onChangeState } = setup({ menuItemId: "menu-1" });
     fireEvent.click(screen.getByRole("button", { name: "3" }));
-    expect(onChangeState).toHaveBeenCalledWith(
-      expect.objectContaining({ count: 3 }),
-    );
+    expect(onChangeState).toHaveBeenCalledWith(expect.objectContaining({ count: 3 }));
   });
 
   it("メニュー選択済みで「抽出開始」を押すと pending 状態へ遷移", () => {

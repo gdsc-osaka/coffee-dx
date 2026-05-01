@@ -1,12 +1,6 @@
 import { Volume2, VolumeOff } from "lucide-react";
 
-export function SoundToggle({
-  unlocked,
-  onUnlock,
-}: {
-  unlocked: boolean;
-  onUnlock: () => void;
-}) {
+export function SoundToggle({ unlocked, onUnlock }: { unlocked: boolean; onUnlock: () => void }) {
   return (
     <button
       type="button"

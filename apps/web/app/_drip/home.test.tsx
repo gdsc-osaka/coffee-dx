@@ -171,8 +171,12 @@ describe("DripHome", () => {
       return section;
     });
 
-    expect(within(lanesSection).getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
-    expect(within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ })).toBeInTheDocument();
+    expect(
+      within(lanesSection).getByRole("button", { name: /スワイプで完了/ }),
+    ).toBeInTheDocument();
+    expect(
+      within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
+    ).toBeInTheDocument();
   });
 
   it("ProductionDashboard に余剰削除ボタンが ready 余剰時のみ出る", async () => {
@@ -187,9 +191,7 @@ describe("DripHome", () => {
       });
     });
 
-    const dashboard = await waitFor(() =>
-      screen.getByRole("region", { name: "生産状況" }),
-    );
+    const dashboard = await waitFor(() => screen.getByRole("region", { name: "生産状況" }));
 
     expect(within(dashboard).queryByTitle("余剰を1件減らす")).not.toBeInTheDocument();
 
@@ -243,9 +245,7 @@ describe("DripHome", () => {
       });
     });
 
-    const lanesSection = await waitFor(() =>
-      screen.getByRole("region", { name: "抽出レーン" }),
-    );
+    const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
     // 初期はアクティブレーンなし、アイドルもなし
     expect(within(lanesSection).queryByText(/レーン 1$/)).not.toBeInTheDocument();
 
