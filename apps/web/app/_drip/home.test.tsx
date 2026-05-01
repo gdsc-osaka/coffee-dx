@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useActionDataMock, useNavigationMock } = vi.hoisted(() => ({
+const { useActionDataMock, useNavigationMock, useSubmitMock } = vi.hoisted(() => ({
   useActionDataMock: vi.fn(),
   useNavigationMock: vi.fn(),
+  useSubmitMock: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -13,6 +14,7 @@ vi.mock("react-router", () => ({
   ),
   useActionData: useActionDataMock,
   useNavigation: useNavigationMock,
+  useSubmit: useSubmitMock,
 }));
 
 import DripHome from "./home";
@@ -142,6 +144,7 @@ describe("DripHome", () => {
     MockWebSocket.instances = [];
     useActionDataMock.mockReturnValue(undefined);
     useNavigationMock.mockReturnValue({ state: "idle", formData: undefined });
+    useSubmitMock.mockReturnValue(vi.fn());
     vi.stubGlobal("WebSocket", MockWebSocket as unknown as typeof WebSocket);
   });
 
@@ -161,15 +164,15 @@ describe("DripHome", () => {
       });
     });
 
-    // 抽出レーン section にメニュー名と「完了 / 取消」ボタンが出る
+    // 抽出レーン section にメニュー名と「スワイプで完了 / 1秒長押し取消」操作子が出る
     const lanesSection = await waitFor(() => {
       const section = screen.getByRole("region", { name: "抽出レーン" });
       expect(within(section).getByText("アメリカーノ")).toBeInTheDocument();
       return section;
     });
 
-    expect(within(lanesSection).getByRole("button", { name: "完了" })).toBeEnabled();
-    expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeEnabled();
+    expect(within(lanesSection).getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
+    expect(within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ })).toBeInTheDocument();
   });
 
   it("ProductionDashboard に余剰削除ボタンが ready 余剰時のみ出る", async () => {
@@ -215,7 +218,7 @@ describe("DripHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "完了" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -223,8 +226,8 @@ describe("DripHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /スワイプで完了/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /取消 \(1秒長押し\)/ })).not.toBeInTheDocument();
     });
   });
 

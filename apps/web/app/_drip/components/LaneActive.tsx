@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Form } from "react-router";
+import { useCallback, useState } from "react";
+import { useSubmit } from "react-router";
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,10 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { useElapsedSeconds } from "../hooks/useElapsedSeconds";
+import { useTimerEndAlert } from "../hooks/useTimerEndAlert";
 import { formatDuration } from "../utils/formatDuration";
+import { SwipeToConfirm } from "./SwipeToConfirm";
+import { LongPressButton } from "./LongPressButton";
 
 export function LaneActive({
   laneNumber,
@@ -35,15 +38,33 @@ export function LaneActive({
   const elapsed = useElapsedSeconds(createdAt);
   const remaining = targetDurationSec !== null ? targetDurationSec - elapsed : null;
   const isFinished = remaining !== null && remaining <= 0;
+  useTimerEndAlert(remaining);
+
+  const submit = useSubmit();
   const [cancelOpen, setCancelOpen] = useState(false);
+
+  const handleComplete = useCallback(() => {
+    const fd = new FormData();
+    fd.append("intent", "brew-complete");
+    fd.append("eventId", eventId);
+    fd.append("batchId", batchId);
+    submit(fd, { method: "post" });
+  }, [eventId, batchId, submit]);
+
+  const handleCancelConfirmed = useCallback(() => {
+    const fd = new FormData();
+    fd.append("intent", "brew-cancel");
+    fd.append("eventId", eventId);
+    fd.append("batchId", batchId);
+    submit(fd, { method: "post" });
+    setCancelOpen(false);
+  }, [eventId, batchId, submit]);
 
   return (
     <div
       data-finished={isFinished ? "true" : "false"}
-      className={`rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm border-2 transition-colors ${
-        isFinished
-          ? "bg-red-50 border-red-300"
-          : "bg-white border-orange-200"
+      className={`rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm border-2 ${
+        isFinished ? "" : "bg-white border-orange-200"
       }`}
     >
       <div className="flex items-baseline gap-3">
@@ -80,27 +101,19 @@ export function LaneActive({
         )}
       </div>
 
-      <div className="flex gap-2">
-        <Form method="post" className="flex-[2]">
-          <input type="hidden" name="intent" value="brew-complete" />
-          <input type="hidden" name="eventId" value={eventId} />
-          <input type="hidden" name="batchId" value={batchId} />
-          <button
-            type="submit"
-            disabled={isCompleting || isCancelling}
-            className="w-full py-4 text-xl font-black bg-emerald-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
-          >
-            {isCompleting ? "..." : "完了"}
-          </button>
-        </Form>
-        <button
-          type="button"
-          onClick={() => setCancelOpen(true)}
+      <div className="flex flex-col gap-2">
+        <SwipeToConfirm
+          onConfirm={handleComplete}
           disabled={isCompleting || isCancelling}
-          className="flex-1 py-4 text-base font-bold bg-white border-2 border-stone-200 text-stone-500 rounded-2xl hover:bg-stone-50 active:bg-stone-100 disabled:opacity-50 transition-colors"
+          className="bg-emerald-100 text-emerald-800"
+        />
+        <LongPressButton
+          onLongPress={() => setCancelOpen(true)}
+          disabled={isCompleting || isCancelling}
+          className="py-3 text-sm font-bold bg-white border-2 border-stone-200 text-stone-500 rounded-2xl disabled:opacity-50"
         >
-          取消
-        </button>
+          取消 (1秒長押し)
+        </LongPressButton>
       </div>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -119,17 +132,13 @@ export function LaneActive({
             >
               いいえ
             </button>
-            <Form method="post" onSubmit={() => setCancelOpen(false)}>
-              <input type="hidden" name="intent" value="brew-cancel" />
-              <input type="hidden" name="eventId" value={eventId} />
-              <input type="hidden" name="batchId" value={batchId} />
-              <button
-                type="submit"
-                className="px-5 py-3 rounded-2xl bg-red-500 text-white font-bold hover:bg-red-600"
-              >
-                取消する
-              </button>
-            </Form>
+            <button
+              type="button"
+              onClick={handleCancelConfirmed}
+              className="px-5 py-3 rounded-2xl bg-red-500 text-white font-bold hover:bg-red-600"
+            >
+              取消する
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

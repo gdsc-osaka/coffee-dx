@@ -6,6 +6,8 @@ import { ProductionDashboard } from "./components/ProductionDashboard";
 import { BrewLane, type BrewLaneState, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState, LanePendingState } from "./components/LaneIdle";
 import { AddLaneButton } from "./components/AddLaneButton";
+import { SoundToggle } from "./components/SoundToggle";
+import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -211,6 +213,24 @@ export default function DripHome({
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [audioUnlocked, setAudioUnlocked] = useState<boolean>(() => isAudioUnlocked());
+
+  /** 任意のユーザー操作で AudioContext を unlock する。iOS / Android で必要。 */
+  const handleUnlockAudio = useCallback(() => {
+    ensureAudioUnlocked().then((ok) => {
+      if (ok) setAudioUnlocked(true);
+    });
+  }, []);
+
+  // 初回の pointerdown で自動アンロックを試みる（明示的なボタンの保険）
+  useEffect(() => {
+    if (audioUnlocked) return;
+    const onAnyPointer = () => {
+      handleUnlockAudio();
+    };
+    window.addEventListener("pointerdown", onAnyPointer, { once: true });
+    return () => window.removeEventListener("pointerdown", onAnyPointer);
+  }, [audioUnlocked, handleUnlockAudio]);
 
   const reconnectTimeoutRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
@@ -467,7 +487,8 @@ export default function DripHome({
             <h1 className="text-base font-bold text-stone-800 leading-tight">ドリップ係</h1>
             <p className="text-xs text-stone-400 mt-0.5">抽出管理</p>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs">
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <SoundToggle unlocked={audioUnlocked} onUnlock={handleUnlockAudio} />
             <span className="flex items-center gap-1.5 text-stone-400">
               <span
                 className={
