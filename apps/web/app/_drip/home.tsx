@@ -332,10 +332,42 @@ export default function DripHome({
       };
     };
 
+    // 端末スリープからの復帰、別アプリからの戻り、bfcache 復元時に呼ばれる。
+    // 待機中のバックオフ再接続をキャンセルし、即時に新しい接続を張る。
+    const reconnectImmediately = () => {
+      if (unmounted) return;
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      retryCountRef.current = 0;
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        // 古いソケットの onclose が走るとバックオフ再接続が二重起動するため、
+        // ハンドラを外してから閉じる。
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close();
+      }
+      connect();
+    };
+
+    const handleVisibilityCheck = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        reconnectImmediately();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityCheck);
+    // bfcache から復元された場合は visibilitychange が発火しないため pageshow も拾う
+    window.addEventListener("pageshow", handleVisibilityCheck);
+
     connect();
 
     return () => {
       unmounted = true;
+      document.removeEventListener("visibilitychange", handleVisibilityCheck);
+      window.removeEventListener("pageshow", handleVisibilityCheck);
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
       if (socket) socket.close();
     };
