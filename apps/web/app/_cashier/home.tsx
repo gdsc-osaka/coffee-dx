@@ -43,7 +43,15 @@ type ServerMessage =
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
-  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string }
+  | { type: "pong" };
+
+// Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）に達する前に
+// 必ず往復が発生するよう、25 秒ごとに ping を送る。
+const PING_INTERVAL_MS = 25_000;
+// ping 送信後 10 秒以内に pong が返らなければ「半開き」TCP 接続と判定し、
+// クライアント側から能動的に切断 → 再接続を走らせる。
+const PONG_TIMEOUT_MS = 10_000;
 
 type VirtualOrderItem = CashierOrderItem & {
   readyCount: number;
@@ -109,6 +117,21 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
     const connect = () => {
       if (unmounted) return;
 
+      // ハートビート用タイマー。connect() の呼び出しごとに新しいソケットに紐づくため、
+      // useEffect 全体ではなく connect() スコープの local 変数として管理する。
+      let pingIntervalId: number | null = null;
+      let pongTimeoutId: number | null = null;
+      const clearHeartbeatTimers = () => {
+        if (pingIntervalId !== null) {
+          window.clearInterval(pingIntervalId);
+          pingIntervalId = null;
+        }
+        if (pongTimeoutId !== null) {
+          window.clearTimeout(pongTimeoutId);
+          pongTimeoutId = null;
+        }
+      };
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
 
@@ -116,11 +139,35 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionError(null);
+
+        pingIntervalId = window.setInterval(() => {
+          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          try {
+            socket.send(JSON.stringify({ type: "ping" }));
+          } catch {
+            // send 自体が失敗するソケットは確実に死んでいる。close 経由で再接続。
+            socket.close();
+            return;
+          }
+          if (pongTimeoutId !== null) window.clearTimeout(pongTimeoutId);
+          pongTimeoutId = window.setTimeout(() => {
+            // pong が返ってこない = 半開き接続。能動的に閉じて onclose の再接続経路に乗せる。
+            if (socket) socket.close();
+          }, PONG_TIMEOUT_MS);
+        }, PING_INTERVAL_MS);
       };
 
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as ServerMessage;
+
+          if (message.type === "pong") {
+            if (pongTimeoutId !== null) {
+              window.clearTimeout(pongTimeoutId);
+              pongTimeoutId = null;
+            }
+            return;
+          }
 
           if (message.type === "SNAPSHOT") {
             const nextOrders: Record<string, CashierOrder> = {};
@@ -191,6 +238,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       };
 
       socket.onclose = () => {
+        clearHeartbeatTimers();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
         retryCountRef.current += 1;
