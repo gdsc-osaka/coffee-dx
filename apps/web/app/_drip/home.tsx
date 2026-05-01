@@ -391,11 +391,11 @@ export default function DripHome({
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-x-auto pb-10">
+      <div className="flex-1 sm:overflow-x-auto pb-10">
         {!isSnapshotLoaded ? (
           <p className="px-6 py-10 text-sm text-stone-400 animate-pulse">読み込み中...</p>
         ) : (
-          <div className="flex h-full px-8 py-10 gap-12 min-w-max">
+          <div className="flex flex-col gap-8 px-4 py-6 sm:flex-row sm:h-full sm:px-8 sm:py-10 sm:gap-12 sm:min-w-max">
             {menuSummaries.map((menu) => (
               <MenuSection
                 key={menu.menuItemId}
@@ -452,7 +452,7 @@ function MenuSection({
     submittingIntent === "brew-start" && submittingMenuId === menu.menuItemId;
 
   return (
-    <section className="w-[500px] flex flex-col gap-8 shrink-0">
+    <section className="w-full sm:w-[500px] flex flex-col gap-8 sm:shrink-0">
       {/* メニューヘッダー & ステータス (固定エリア) */}
       <div className="space-y-4">
         <div className="flex flex-col gap-2">
@@ -492,7 +492,7 @@ function MenuSection({
         {/* 新規バッチ開始コントロール (固定エリア) */}
         <Form
           method="post"
-          className="flex items-center gap-6 p-6 bg-stone-100 rounded-3xl border-2 border-stone-200"
+          className="flex flex-col gap-3 p-4 sm:p-6 bg-stone-100 rounded-3xl border-2 border-stone-200 sm:flex-row sm:items-center sm:gap-6"
         >
           <input type="hidden" name="intent" value="brew-start" />
           <input type="hidden" name="eventId" value={eventId} />
@@ -517,13 +517,13 @@ function MenuSection({
                 </button>
               );
             })}
+            <span className="text-xl font-bold text-stone-500 ml-2">杯</span>
           </div>
-          <span className="text-xl font-bold text-stone-500 mr-2">杯</span>
 
           <button
             type="submit"
             disabled={isStartSubmitting}
-            className="flex-1 py-5 text-3xl font-black bg-amber-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
+            className="w-full sm:flex-1 py-5 text-3xl font-black bg-amber-500 text-white rounded-2xl shadow-md disabled:opacity-50 active:scale-95 transition-transform"
           >
             {isStartSubmitting ? "..." : "開始"}
           </button>
@@ -541,14 +541,14 @@ function MenuSection({
           return (
             <div
               key={batch.batchId}
-              className="bg-white border-2 border-orange-200 rounded-3xl p-6 flex items-center gap-6 shadow-sm"
+              className="bg-white border-2 border-orange-200 rounded-3xl p-4 sm:p-6 flex items-center gap-3 sm:gap-6 shadow-sm"
             >
               <span className="w-4 h-4 rounded-full bg-orange-400 animate-pulse shrink-0" />
-              <span className="text-2xl font-bold text-stone-700 flex items-center">
+              <span className="text-xl sm:text-2xl font-bold text-stone-700 flex items-center">
                 抽出中
-                <span className="text-orange-600 font-black text-5xl mx-3">{batch.count}</span>杯
+                <span className="text-orange-600 font-black text-4xl sm:text-5xl mx-2 sm:mx-3">{batch.count}</span>杯
               </span>
-              <div className="ml-auto flex gap-3">
+              <div className="ml-auto flex gap-2 sm:gap-3">
                 <Form method="post">
                   <input type="hidden" name="intent" value="brew-complete" />
                   <input type="hidden" name="eventId" value={eventId} />
@@ -556,7 +556,7 @@ function MenuSection({
                   <button
                     type="submit"
                     disabled={isCompleting || isCancelling}
-                    className="px-8 py-5 text-2xl font-bold bg-emerald-500 text-white rounded-2xl disabled:opacity-50 active:scale-95 transition-transform shadow-sm"
+                    className="px-5 sm:px-8 py-4 sm:py-5 text-xl sm:text-2xl font-bold bg-emerald-500 text-white rounded-2xl disabled:opacity-50 active:scale-95 transition-transform shadow-sm"
                   >
                     {isCompleting ? "..." : "完了"}
                   </button>
@@ -568,7 +568,7 @@ function MenuSection({
                   <button
                     type="submit"
                     disabled={isCompleting || isCancelling}
-                    className="px-6 py-5 text-xl font-bold bg-white border-2 border-stone-200 text-stone-400 rounded-2xl disabled:opacity-50 active:scale-95 transition-transform"
+                    className="px-4 sm:px-6 py-4 sm:py-5 text-lg sm:text-xl font-bold bg-white border-2 border-stone-200 text-stone-400 rounded-2xl disabled:opacity-50 active:scale-95 transition-transform"
                   >
                     {isCancelling ? "..." : "取消し"}
                   </button>
