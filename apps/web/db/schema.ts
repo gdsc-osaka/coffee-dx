@@ -76,6 +76,11 @@ export const brewUnits = sqliteTable(
       onDelete: "set null",
     }),
     status: text("status").notNull().default("brewing"),
+    /**
+     * 抽出開始時にドリップ係が指定したタイマー秒数。NULL は未指定（旧データ・タイマー未使用）。
+     * createdAt との差分でクライアント側がカウントダウンを再現する。
+     */
+    targetDurationSec: integer("target_duration_sec"),
     /** 業務日 YYYY-MM-DD。order_number_counters.business_date と同じ命名。 */
     businessDate: text("business_date").notNull(),
     createdAt: text("created_at").notNull().default(jstNow),

@@ -24,6 +24,7 @@ type BrewUnit = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
+  targetDurationSec: number | null;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -109,12 +110,14 @@ function buildBrewUnit(overrides: {
   status: "brewing" | "ready";
   orderItemId?: string | null;
   batchId?: string;
+  targetDurationSec?: number | null;
 }): BrewUnit {
   return {
     batchId: overrides.batchId ?? "b1",
     menuItemId: "menu-1",
     menuItemName: "アメリカーノ",
     orderItemId: overrides.orderItemId ?? null,
+    targetDurationSec: overrides.targetDurationSec ?? null,
     businessDate: "2026-04-18",
     createdAt: ts,
     updatedAt: ts,

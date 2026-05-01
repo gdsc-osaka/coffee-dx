@@ -178,11 +178,62 @@ describe("OrderDO", () => {
     expect(created.type).toBe("BREW_UNITS_CREATED");
     expect(created.brewUnits).toHaveLength(2);
     expect(created.brewUnits.every((u: any) => u.status === "brewing")).toBe(true);
+    // targetDurationSec を渡さなかったので NULL で配信される
+    expect(created.brewUnits.every((u: any) => u.targetDurationSec === null)).toBe(true);
 
     // DB 確認: business_date は body ではなく x-event-id から書き込まれる
     const units = await db.select().from(brewUnits);
     expect(units).toHaveLength(2);
     expect(units.every((u) => u.businessDate === eventId)).toBe(true);
+    expect(units.every((u) => u.targetDurationSec === null)).toBe(true);
+  });
+
+  it("targetDurationSec を指定して BrewUnit を生成すると DO 配信と DB の双方に保存される", async () => {
+    await insertMenu("m1", "coffee");
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    await queue.next(); // SNAPSHOT
+
+    const res = await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 1, targetDurationSec: 210 }),
+      }),
+    );
+    expect(res.status).toBe(204);
+
+    const created = await queue.next();
+    expect(created.type).toBe("BREW_UNITS_CREATED");
+    expect(created.brewUnits).toHaveLength(1);
+    expect(created.brewUnits[0].targetDurationSec).toBe(210);
+
+    const units = await db.select().from(brewUnits);
+    expect(units).toHaveLength(1);
+    expect(units[0].targetDurationSec).toBe(210);
+  });
+
+  it("targetDurationSec が 0 以下や無効値のときは NULL として保存される", async () => {
+    await insertMenu("m1", "coffee");
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    await queue.next(); // SNAPSHOT
+
+    await stub.fetch(
+      new Request("http://localhost/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 1, targetDurationSec: 0 }),
+      }),
+    );
+    await queue.next(); // BREW_UNITS_CREATED
+
+    const units = await db.select().from(brewUnits);
+    expect(units[0].targetDurationSec).toBeNull();
   });
 
   // ---------------------------------------------------------------------------

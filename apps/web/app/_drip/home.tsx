@@ -37,6 +37,8 @@ type BrewUnitData = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
+  /** ドリップ係が抽出開始時に指定したタイマー秒数。NULL は未指定。 */
+  targetDurationSec: number | null;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -120,8 +122,14 @@ export async function action({ request, context }: Route.ActionArgs) {
         if (typeof menuItemId !== "string" || !menuItemId || count < 1) {
           return { ok: false, error: "入力値が不正です" };
         }
+        const rawDuration = formData.get("targetDurationSec");
+        const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
+        const targetDurationSec =
+          Number.isFinite(parsedDuration) && parsedDuration > 0
+            ? Math.floor(parsedDuration)
+            : null;
         await callOrderDO(stub, eventId, "/do/brew-units", {
-          body: { menuItemId, count },
+          body: { menuItemId, count, targetDurationSec },
         });
         return { ok: true, intent };
       }

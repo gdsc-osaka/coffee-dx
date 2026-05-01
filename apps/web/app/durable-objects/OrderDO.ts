@@ -30,6 +30,8 @@ type BrewUnitData = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
+  /** ドリップ係が抽出開始時に指定したタイマー秒数。NULL は未指定。 */
+  targetDurationSec: number | null;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -221,6 +223,7 @@ export class OrderDurableObject implements DurableObject {
             menuItemName: menuNameById.get(u.menuItemId) ?? "",
             orderItemId: u.orderItemId,
             status: u.status as "brewing" | "ready",
+            targetDurationSec: u.targetDurationSec,
             businessDate: u.businessDate,
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
@@ -336,8 +339,13 @@ export class OrderDurableObject implements DurableObject {
     const body = (await request.json()) as {
       menuItemId: string;
       count: number;
+      targetDurationSec?: number | null;
     };
     const { menuItemId, count } = body;
+    const targetDurationSec =
+      typeof body.targetDurationSec === "number" && body.targetDurationSec > 0
+        ? Math.floor(body.targetDurationSec)
+        : null;
 
     if (!menuItemId || !count || count < 1) return new Response("Invalid body", { status: 400 });
 
@@ -364,6 +372,7 @@ export class OrderDurableObject implements DurableObject {
       menuItemName: menuRecord.name,
       orderItemId: null,
       status: "brewing" as const,
+      targetDurationSec,
       businessDate,
       createdAt: now,
       updatedAt: now,
@@ -377,6 +386,7 @@ export class OrderDurableObject implements DurableObject {
           menuItemId: u.menuItemId,
           orderItemId: null,
           status: u.status,
+          targetDurationSec: u.targetDurationSec,
           businessDate: u.businessDate,
           createdAt: u.createdAt,
           updatedAt: u.updatedAt,
