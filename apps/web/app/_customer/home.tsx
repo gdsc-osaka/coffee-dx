@@ -360,9 +360,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
               <Button
                 type="submit"
                 className={`w-full h-14 text-2xl font-black text-white border-0 rounded-2xl ${
-                  isFree
-                    ? "bg-sky-600 hover:bg-sky-500"
-                    : "bg-emerald-600 hover:bg-emerald-500"
+                  isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
                 }`}
                 disabled={isSubmitting || printerStatusData?.isPrinting}
               >
@@ -399,9 +397,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
           <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
             {isFree ? (
               <>
-                <p className="text-2xl font-bold text-stone-700 tracking-wide">
-                  無料サービスです
-                </p>
+                <p className="text-2xl font-bold text-stone-700 tracking-wide">無料サービスです</p>
                 <p className="text-8xl font-black text-sky-600 leading-none">FREE</p>
               </>
             ) : (
