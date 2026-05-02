@@ -17,9 +17,11 @@ export async function createOrder(
   db: Db,
   env: Env,
   cartItems: CartItem[],
-): Promise<{ orderId: string; orderNumber: number; createdAt: Date }> {
+  options?: { isFree?: boolean },
+): Promise<{ orderId: string; orderNumber: number; createdAt: Date; isFree: boolean }> {
   const businessDate = getBusinessDate();
   const now = getJstNowString();
+  const isFree = options?.isFree ?? false;
 
   // 注文番号採番（UPSERT + RETURNING で原子的にインクリメント済み値を取得）
   //
@@ -69,6 +71,7 @@ export async function createOrder(
       businessDate,
       orderNumber,
       status: "pending",
+      isFree: isFree ? 1 : 0,
       createdAt: now,
       updatedAt: now,
     }),
@@ -83,6 +86,7 @@ export async function createOrder(
         id: orderId,
         orderNumber,
         status: "pending",
+        isFree,
         createdAt: now,
         updatedAt: now,
         items: orderItemsData.map((item) => ({
@@ -97,5 +101,5 @@ export async function createOrder(
     throw err;
   }
 
-  return { orderId, orderNumber, createdAt: parseJstString(now) };
+  return { orderId, orderNumber, createdAt: parseJstString(now), isFree };
 }

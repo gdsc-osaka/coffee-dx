@@ -31,6 +31,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       id: o.id,
       orderNumber: o.orderNumber,
       status: o.status,
+      isFree: o.isFree,
       // Date は JSON.stringify されると ISO 文字列になるため、ハイドレーション後に new Date() で復元する
       createdAt: o.createdAt.toISOString(),
       items: o.items,

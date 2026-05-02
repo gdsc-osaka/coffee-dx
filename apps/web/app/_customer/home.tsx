@@ -37,6 +37,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
   const cartJson = formData.get("cartJson");
+  const isFree = formData.get("isFree") === "1";
 
   const parseResult = cartJsonSchema.safeParse(cartJson);
   if (!parseResult.success) {
@@ -69,12 +70,14 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 
   try {
-    const { orderNumber, createdAt } = await createOrder(db, context.cloudflare.env, cartItems);
+    const { orderNumber, createdAt } = await createOrder(db, context.cloudflare.env, cartItems, {
+      isFree,
+    });
     // 印字に必要な name/quantity をサーバー正規化済みの cartItems から返す。
     // クライアントの cart 状態にズレがあっても、レシートと DB に永続化された注文内容を一致させる。
     const items = cartItems.map((c) => ({ name: c.name, quantity: c.quantity }));
     // Date は JSON シリアライズで ISO 文字列に変換されるので、クライアントで new Date() で復元する
-    return { orderNumber, createdAt: createdAt.toISOString(), items };
+    return { orderNumber, createdAt: createdAt.toISOString(), items, isFree };
   } catch {
     return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
   }
@@ -103,6 +106,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const [completedOrderItems, setCompletedOrderItems] = useState<
     { name: string; quantity: number }[]
   >([]);
+  const [completedOrderIsFree, setCompletedOrderIsFree] = useState(false);
+  const [isFree, setIsFree] = useState(false);
   const [printerStatus, setPrinterStatus] = useState<ConnectionStatus>("disconnected");
   const [printerStatusData, setPrinterStatusData] = useState<PrinterStatus | null>(null);
   const [optimisticDensity, setOptimisticDensity] = useState<number | null>(null);
@@ -138,9 +143,11 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       // 印字・表示に使う items は action がサーバー正規化して返したものを採用する
       // （クライアント cart に改変があっても DB に永続化された注文と必ず一致させるため）
       const serverItems = actionData.items ?? [];
+      const orderIsFree = actionData.isFree ?? false;
       setCompletedOrderNumber(actionData.orderNumber);
       setCompletedOrderCreatedAt(createdAt);
       setCompletedOrderItems(serverItems);
+      setCompletedOrderIsFree(orderIsFree);
       setPhase("complete");
 
       // 自動印刷の実行
@@ -151,6 +158,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             orderNumber: actionData.orderNumber!,
             items: serverItems,
             timestamp: createdAt,
+            isFree: orderIsFree,
           });
           await printerClient.print(canvas);
         } catch (e) {
@@ -194,6 +202,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         orderNumber: completedOrderNumber,
         items: completedOrderItems,
         timestamp: completedOrderCreatedAt,
+        isFree: completedOrderIsFree,
       });
       await printerClient.print(canvas);
     } catch (e) {
@@ -236,6 +245,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       setCompletedOrderNumber(null);
       setCompletedOrderCreatedAt(null);
       setCompletedOrderItems([]);
+      setCompletedOrderIsFree(false);
+      setIsFree(false);
     }
     setPhase("menu");
   };
@@ -284,15 +295,28 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       {/* カート合計バー */}
       {totalItems > 0 && phase === "menu" && (
         <div className="fixed bottom-0 inset-x-0 p-4 bg-white border-t border-stone-200 shadow-lg">
-          <div className="max-w-lg mx-auto">
+          <div className="max-w-lg mx-auto flex flex-col gap-2">
             <Button
               type="button"
               className="w-full bg-stone-900 hover:bg-stone-800 text-white h-16 text-lg rounded-2xl"
-              onClick={() => setPhase("confirm")}
+              onClick={() => {
+                setIsFree(false);
+                setPhase("confirm");
+              }}
             >
               <ShoppingBag className="size-5 mr-2" />
               <span className="flex-1 text-left">注文を確認する</span>
               <span className="font-black text-xl">¥{totalPrice.toLocaleString()}</span>
+            </Button>
+            <Button
+              type="button"
+              className="w-full h-12 text-base rounded-2xl bg-sky-600 hover:bg-sky-500 text-white"
+              onClick={() => {
+                setIsFree(true);
+                setPhase("confirm");
+              }}
+            >
+              無料で注文する
             </Button>
           </div>
         </div>
@@ -325,18 +349,30 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             {actionData && "error" in actionData && (
               <p className="text-sm text-red-400 text-center">{actionData.error}</p>
             )}
+            {isFree && (
+              <p className="text-sky-400 text-xs text-center font-bold tracking-widest">
+                ** 無料サービス **
+              </p>
+            )}
             <Form method="post" onSubmit={handlePrintSubmit}>
               <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
+              <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
               <Button
                 type="submit"
-                className="w-full h-14 text-2xl font-black bg-emerald-600 hover:bg-emerald-500 text-white border-0 rounded-2xl"
+                className={`w-full h-14 text-2xl font-black text-white border-0 rounded-2xl ${
+                  isFree
+                    ? "bg-sky-600 hover:bg-sky-500"
+                    : "bg-emerald-600 hover:bg-emerald-500"
+                }`}
                 disabled={isSubmitting || printerStatusData?.isPrinting}
               >
                 {isSubmitting
                   ? "処理中..."
                   : printerStatusData?.isPrinting
                     ? "印刷中..."
-                    : "会計を確定する"}
+                    : isFree
+                      ? "無料で確定する"
+                      : "会計を確定する"}
               </Button>
             </Form>
             {isAutoPrintEnabled && (
@@ -347,7 +383,10 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             <button
               type="button"
               className="text-stone-600 text-sm text-center py-0.5"
-              onClick={() => setPhase("menu")}
+              onClick={() => {
+                setIsFree(false);
+                setPhase("menu");
+              }}
             >
               キャンセル
             </button>
@@ -358,12 +397,23 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
           {/* 下部: お客様向け（正位）*/}
           <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
-            <p className="text-2xl font-bold text-stone-700 tracking-wide">
-              現金でお支払いください
-            </p>
-            <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
-              ¥{totalPrice.toLocaleString()}
-            </p>
+            {isFree ? (
+              <>
+                <p className="text-2xl font-bold text-stone-700 tracking-wide">
+                  無料サービスです
+                </p>
+                <p className="text-8xl font-black text-sky-600 leading-none">FREE</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-stone-700 tracking-wide">
+                  現金でお支払いください
+                </p>
+                <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
+                  ¥{totalPrice.toLocaleString()}
+                </p>
+              </>
+            )}
           </div>
         </div>
       )}

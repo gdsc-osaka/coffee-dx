@@ -117,6 +117,28 @@ describe("createOrder", () => {
     expect(order.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
 
+  it("isFree オプション未指定時は is_free = 0 で保存される", async () => {
+    const d1Db = createDb(env.DB);
+    const cartItems = [{ menuItemId: "menu-1", name: "ブレンドコーヒー", price: 400, quantity: 1 }];
+
+    const result = await createOrder(d1Db, mockEnv, cartItems);
+
+    const [order] = await db.select().from(orders);
+    expect(order.isFree).toBe(0);
+    expect(result.isFree).toBe(false);
+  });
+
+  it("isFree: true を渡すと is_free = 1 で保存される", async () => {
+    const d1Db = createDb(env.DB);
+    const cartItems = [{ menuItemId: "menu-1", name: "ブレンドコーヒー", price: 400, quantity: 1 }];
+
+    const result = await createOrder(d1Db, mockEnv, cartItems, { isFree: true });
+
+    const [order] = await db.select().from(orders);
+    expect(order.isFree).toBe(1);
+    expect(result.isFree).toBe(true);
+  });
+
   it("戻り値の createdAt は D1 に保存された JST 文字列と一致する Date を返す", async () => {
     const d1Db = createDb(env.DB);
     const cartItems = [{ menuItemId: "menu-1", name: "ブレンドコーヒー", price: 400, quantity: 1 }];

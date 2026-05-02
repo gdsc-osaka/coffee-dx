@@ -1,0 +1,1 @@
+ALTER TABLE `orders` ADD `is_free` integer DEFAULT 0 NOT NULL;

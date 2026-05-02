@@ -50,6 +50,13 @@
       "when": 1777677927082,
       "tag": "0006_odd_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777693922243,
+      "tag": "0007_tricky_meltdown",
+      "breakpoints": true
     }
   ]
 }
