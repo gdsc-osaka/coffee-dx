@@ -11,7 +11,6 @@ import {
 import { parseJst } from "../utils/parseJst";
 import { stopTimerEndSound } from "../utils/audioUnlock";
 import { SwipeToConfirm } from "./SwipeToConfirm";
-import { LongPressButton } from "./LongPressButton";
 import { LaneTimer } from "./LaneTimer";
 
 /**
@@ -110,13 +109,14 @@ export function LaneActive({
           disabled={isCompleting || isCancelling}
           className="bg-emerald-100 text-emerald-800"
         />
-        <LongPressButton
-          onLongPress={() => setCancelOpen(true)}
+        <button
+          type="button"
+          onClick={() => setCancelOpen(true)}
           disabled={isCompleting || isCancelling}
-          className="py-3 text-sm font-bold bg-white border-2 border-stone-200 text-stone-500 rounded-2xl disabled:opacity-50"
+          className="py-3 text-sm font-bold bg-white border-2 border-stone-200 text-stone-500 hover:bg-stone-50 active:bg-stone-100 rounded-2xl disabled:opacity-50 transition-colors"
         >
-          取消 (1秒長押し)
-        </LongPressButton>
+          取消
+        </button>
       </div>
 
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
