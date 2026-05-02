@@ -295,23 +295,38 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       connect();
     };
 
-    const handleVisibilityCheck = () => {
-      if (document.visibilityState !== "visible") return;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
+    const checkAndReconnect = () => {
+      // CONNECTING 中に reconnectImmediately() を走らせるとタイマー多重化や二重接続を
+      // 招くため、再接続が必要なのは「ソケットが消えた / すでに CLOSED」状態のときだけ。
+      // OPEN の場合はハートビート (PING_INTERVAL_MS + PONG_TIMEOUT_MS) で死活を検出する。
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
         reconnectImmediately();
       }
     };
 
+    const handleVisibilityCheck = () => {
+      if (document.visibilityState !== "visible") return;
+      checkAndReconnect();
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // pageshow は初回ロード時にも発火する。そのタイミングで socket がまだ
+      // CONNECTING の最中だと不要な reconnect を引き起こすため、bfcache から
+      // 復元された (event.persisted === true) ときだけ判定する。
+      if (!event.persisted) return;
+      checkAndReconnect();
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityCheck);
     // bfcache から復元された場合は visibilitychange が発火しないため pageshow も拾う
-    window.addEventListener("pageshow", handleVisibilityCheck);
+    window.addEventListener("pageshow", handlePageShow);
 
     connect();
 
     return () => {
       unmounted = true;
       document.removeEventListener("visibilitychange", handleVisibilityCheck);
-      window.removeEventListener("pageshow", handleVisibilityCheck);
+      window.removeEventListener("pageshow", handlePageShow);
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
       teardownConnection();
     };
