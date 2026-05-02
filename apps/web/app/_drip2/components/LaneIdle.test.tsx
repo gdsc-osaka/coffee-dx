@@ -7,6 +7,11 @@ vi.mock("react-router", () => ({
   ),
 }));
 
+// テストではタイマー UI を有効にして検証する。本番では一時的に無効化中。
+vi.mock("../constants", () => ({
+  TIMER_FEATURE_ENABLED: true,
+}));
+
 import { LaneIdle, type LaneIdleState } from "./LaneIdle";
 
 function setup(initial: Partial<LaneIdleState> = {}, options: { isStarting?: boolean } = {}) {

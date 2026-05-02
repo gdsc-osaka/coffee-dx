@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { TIMER_FEATURE_ENABLED } from "../constants";
 import { parseJst } from "../utils/parseJst";
 import { stopTimerEndSound } from "../utils/audioUnlock";
 import { SwipeToConfirm } from "./SwipeToConfirm";
@@ -45,8 +46,10 @@ export function LaneActive({
   const [cancelOpen, setCancelOpen] = useState(false);
 
   // タイマー動作中は 1 秒ごとに再評価して isFinished をリアクティブにする
-  // （子の LaneTimer が tick しても親の data-finished には伝播しないため）
-  const isTimerRunning = targetDurationSec !== null && timerStartedAt !== null;
+  // （子の LaneTimer が tick しても親の data-finished には伝播しないため）。
+  // フィーチャーフラグが false の間は常に false 扱い。
+  const isTimerRunning =
+    TIMER_FEATURE_ENABLED && targetDurationSec !== null && timerStartedAt !== null;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!isTimerRunning) return;
@@ -96,13 +99,15 @@ export function LaneActive({
         </span>
       </div>
 
-      <LaneTimer
-        batchId={batchId}
-        eventId={eventId}
-        targetDurationSec={targetDurationSec}
-        timerStartedAt={timerStartedAt}
-        isPersisting={isSettingTimer}
-      />
+      {TIMER_FEATURE_ENABLED && (
+        <LaneTimer
+          batchId={batchId}
+          eventId={eventId}
+          targetDurationSec={targetDurationSec}
+          timerStartedAt={timerStartedAt}
+          isPersisting={isSettingTimer}
+        />
+      )}
 
       <div className="flex flex-col gap-2">
         <SwipeToConfirm
