@@ -1,9 +1,12 @@
 import { Form } from "react-router";
+import { formatDuration } from "../utils/formatDuration";
 
 export type LaneIdleState = {
   kind: "idle";
   menuItemId: string | null;
   count: number;
+  /** Start 押下時に送信するタイマー秒数。0 はタイマーなし */
+  durationSec: number;
 };
 
 export function LaneIdle({
@@ -26,7 +29,14 @@ export function LaneIdle({
   onChangeState: (next: LaneIdleState) => void;
   onStart: () => void;
 }) {
-  const canStart = state.menuItemId !== null && state.count >= 1;
+  const canStart = state.menuItemId !== null && state.count >= 1 && state.durationSec > 0;
+
+  const updateDuration = (delta: number) => {
+    onChangeState({
+      ...state,
+      durationSec: Math.max(0, state.durationSec + delta),
+    });
+  };
 
   return (
     <div className="bg-white border-2 border-stone-200 rounded-3xl p-4 sm:p-6 flex flex-col gap-4 shadow-sm">
@@ -79,12 +89,52 @@ export function LaneIdle({
         </div>
       </div>
 
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-bold text-stone-500">タイマー</span>
+        <div className="flex flex-col items-center justify-center py-3 bg-stone-50 rounded-2xl">
+          <span className="text-4xl font-black tabular-nums text-stone-800">
+            {formatDuration(state.durationSec)}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => updateDuration(10)}
+            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+          >
+            +10秒
+          </button>
+          <button
+            type="button"
+            onClick={() => updateDuration(60)}
+            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+          >
+            +1分
+          </button>
+          <button
+            type="button"
+            onClick={() => updateDuration(180)}
+            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+          >
+            +3分
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangeState({ ...state, durationSec: 0 })}
+            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-500 font-bold hover:bg-stone-100"
+          >
+            リセット
+          </button>
+        </div>
+      </div>
+
       <Form method="post" onSubmit={onStart}>
         <input type="hidden" name="intent" value="brew-start" />
         <input type="hidden" name="eventId" value={eventId} />
         <input type="hidden" name="menuItemId" value={state.menuItemId ?? ""} />
         <input type="hidden" name="count" value={state.count} />
         <input type="hidden" name="laneIndex" value={laneIndex} />
+        <input type="hidden" name="targetDurationSec" value={state.durationSec} />
         <button
           type="submit"
           disabled={!canStart || isStarting}

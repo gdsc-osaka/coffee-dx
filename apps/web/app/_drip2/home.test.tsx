@@ -273,13 +273,17 @@ describe("DripHome", () => {
       within(lanesSection).queryByRole("button", { name: "このレーンを削除" }),
     ).not.toBeInTheDocument();
 
-    // メニュー未選択のときは抽出開始 disabled
+    // メニュー未選択 / タイマー 0 のときは抽出開始 disabled
     const startButtons = within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" });
     expect(startButtons[0]).toBeDisabled();
 
-    // メニュー選択（最初のレーン）→ 抽出開始 enabled
+    // メニュー選択しただけではまだ disabled（タイマーが 0 なので）
     const americanos = within(lanesSection).getAllByRole("button", { name: "アメリカーノ" });
     fireEvent.click(americanos[0]);
+    expect(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })[0]).toBeDisabled();
+
+    // タイマーを +1分 → enabled
+    fireEvent.click(within(lanesSection).getAllByRole("button", { name: "+1分" })[0]);
     expect(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })[0]).toBeEnabled();
   });
 

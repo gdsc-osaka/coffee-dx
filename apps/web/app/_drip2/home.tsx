@@ -15,6 +15,7 @@ const buildIdleSlot = (): LaneIdleState => ({
   kind: "idle",
   menuItemId: null,
   count: 1,
+  durationSec: 0,
 });
 
 // ---------------------------------------------------------------------------
