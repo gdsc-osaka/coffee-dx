@@ -177,7 +177,7 @@ describe("DripHome", () => {
 
     // 抽出中バッチに対する 完了 / 取消し ボタンが出る
     expect(within(section).getByRole("button", { name: "完了" })).toBeEnabled();
-    expect(within(section).getByRole("button", { name: "取消し" })).toBeEnabled();
+    expect(within(section).getByRole("button", { name: "取消" })).toBeEnabled();
 
     // 新規バッチ開始用の杯数選択 (1/2/3) と 開始 ボタン
     expect(within(section).getByRole("button", { name: "1" })).toBeInTheDocument();
@@ -242,7 +242,7 @@ describe("DripHome", () => {
 
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "取消し" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
     });
 
     // 開始 ボタンはバッチの有無にかかわらず常時表示される (新規バッチ開始用)
