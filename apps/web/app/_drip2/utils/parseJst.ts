@@ -1,18 +1,22 @@
+import { parseJstString } from "~/lib/datetime";
+
 /**
  * SQLite の `datetime('now', '+9 hours')` で書き込まれた JST 文字列
  * (`YYYY-MM-DD HH:MM:SS`、Z なし) を UTC のミリ秒に変換する。
  *
- * `new Date("2026-04-18 12:00:00")` の解釈はブラウザ依存だが、
- * ここで `+09:00` を明示することで端末タイムゾーンに依存せず JST として解釈する。
+ * fallback として createdAt が ISO 8601 (Z 付き or オフセット付き) で来るケースもサポートする。
+ * 不正値・空文字・NaN を返すケースでは 0 を返してタイマー表示が NaN になるのを防ぐ。
  *
- * fallback として createdAt が ISO 8601 (Z 付き) で来るケースもサポートする。
+ * JST 形式のパースは既存の `app/lib/datetime.ts#parseJstString` に委譲する。
  */
 export function parseJst(timestamp: string): number {
-  // ISO 8601 (Z 付き or オフセット付き) ならそのまま Date コンストラクタへ
+  if (!timestamp) return 0;
+  // ISO 8601 (Z or オフセット付き) ならそのまま Date.parse
   if (/[Zz]|[+-]\d{2}:?\d{2}$/.test(timestamp)) {
-    return Date.parse(timestamp);
+    const ms = Date.parse(timestamp);
+    return Number.isNaN(ms) ? 0 : ms;
   }
-  // SQLite の "YYYY-MM-DD HH:MM:SS" 形式は JST として解釈
-  const isoLike = timestamp.replace(" ", "T");
-  return Date.parse(`${isoLike}+09:00`);
+  // それ以外は JST 形式と解釈（既存の parseJstString と挙動を揃える）
+  const ms = parseJstString(timestamp).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 }

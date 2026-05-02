@@ -49,6 +49,17 @@ type ServerMessage =
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
   | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
 
+/**
+ * targetDurationSec の正規化。
+ * NaN / 非数 / 1 秒未満（負数や小数で 0 に丸まる値を含む）はすべて null にする。
+ * brew-start と brew-set-timer の両経路で同じ判定を使う。
+ */
+function normalizeTargetDurationSec(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const seconds = Math.floor(value);
+  return seconds >= 1 ? seconds : null;
+}
+
 export class OrderDurableObject implements DurableObject {
   private readonly orders = new Map<string, OrderData>();
   private readonly brewUnits = new Map<string, BrewUnitData>();
@@ -355,10 +366,7 @@ export class OrderDurableObject implements DurableObject {
       targetDurationSec?: number | null;
     };
     const { menuItemId, count } = body;
-    const targetDurationSec =
-      typeof body.targetDurationSec === "number" && body.targetDurationSec > 0
-        ? Math.floor(body.targetDurationSec)
-        : null;
+    const targetDurationSec = normalizeTargetDurationSec(body.targetDurationSec);
     // laneIndex は 0 以上の整数。負値や未指定は 0 (レーン 1) とみなす。
     const laneIndex =
       typeof body.laneIndex === "number" && Number.isFinite(body.laneIndex) && body.laneIndex >= 0
@@ -597,9 +605,7 @@ export class OrderDurableObject implements DurableObject {
 
   private async handleBatchSetTimer(batchId: string, request: Request): Promise<Response> {
     const body = (await request.json()) as { targetDurationSec?: number | null };
-    const rawDuration = body.targetDurationSec;
-    const targetDurationSec =
-      typeof rawDuration === "number" && rawDuration > 0 ? Math.floor(rawDuration) : null;
+    const targetDurationSec = normalizeTargetDurationSec(body.targetDurationSec);
     const now = new Date().toISOString();
     const timerStartedAt = targetDurationSec === null ? null : now;
 

@@ -47,7 +47,11 @@ async function loadAlarmBuffer(ctx: AudioContext): Promise<void> {
 }
 
 export async function ensureAudioUnlocked(): Promise<boolean> {
-  if (unlocked && audioCtx) return true;
+  // すでに running なら何もしない。state を毎回確認しないと iOS Safari 等で
+  // 画面オフ・タブ非アクティブ後に "interrupted" / "suspended" になっても
+  // 「unlock 済み」のまま放置されてしまう。
+  if (audioCtx && unlocked && audioCtx.state === "running") return true;
+
   const Ctx = getCtxClass();
   if (!Ctx) return false;
 
@@ -59,7 +63,8 @@ export async function ensureAudioUnlocked(): Promise<boolean> {
     }
   }
 
-  if (audioCtx.state === "suspended") {
+  // suspended と interrupted (iOS) はどちらも resume() で復帰する
+  if (audioCtx.state !== "running") {
     try {
       await audioCtx.resume();
     } catch {

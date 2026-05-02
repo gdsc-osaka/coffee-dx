@@ -135,7 +135,9 @@ export async function action({ request, context }: Route.ActionArgs) {
     switch (intent) {
       case "brew-start": {
         const menuItemId = formData.get("menuItemId");
-        const count = Number(formData.get("count"));
+        const rawCount = Number(formData.get("count"));
+        // NaN / 0 / 負数 / 小数を全部弾いてから DO へ送る
+        const count = Number.isFinite(rawCount) && rawCount >= 1 ? Math.floor(rawCount) : 0;
         if (typeof menuItemId !== "string" || !menuItemId || count < 1) {
           return { ok: false, error: "入力値が不正です" };
         }
@@ -457,6 +459,7 @@ export default function DripHome({
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
+  const submittingLaneIndex = isSubmitting ? navigation.formData?.get("laneIndex") : null;
   const submittingMenuId = isSubmitting ? navigation.formData?.get("menuItemId") : null;
 
   // brewing バッチを「レーン候補」として派生（createdAt 昇順）。
@@ -609,10 +612,12 @@ export default function DripHome({
                     batchId !== null &&
                     submittingBatchId === batchId &&
                     submittingIntent === "brew-set-timer";
+                  // 同じメニューを選んだ idle レーンが複数あっても他レーンを巻き込まないよう、
+                  // submit 中の laneIndex と一致する場合だけ「開始中」表示にする。
                   const isStarting =
                     submittingIntent === "brew-start" &&
                     slot.kind === "idle" &&
-                    submittingMenuId === slot.menuItemId;
+                    submittingLaneIndex === String(idx);
                   return (
                     <div key={idx} className="w-[22rem] sm:w-[26rem] shrink-0">
                       <BrewLane

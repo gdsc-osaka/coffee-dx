@@ -95,6 +95,15 @@ export function SwipeToConfirm({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        // キーボード/AT は誤タップ防止のスワイプを行えないため、Enter/Space で
+        // 確認操作を発火する（意図的な操作前提）。
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onConfirm();
+        }
+      }}
     >
       <div
         className={`absolute inset-y-0 left-0 pointer-events-none transition-colors ${

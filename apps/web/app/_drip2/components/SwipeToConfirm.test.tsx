@@ -97,7 +97,7 @@ describe("SwipeToConfirm", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("PointerCancel で確定されない", () => {
+  it("PointerCancel でも閾値超えなら onConfirm が呼ばれる（離した扱い）", () => {
     render(<SwipeToConfirm onConfirm={onConfirm} threshold={0.6} />);
     const handle = screen.getByRole("button");
     setOffsetWidth(handle, 200);

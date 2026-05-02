@@ -79,6 +79,7 @@ function ProductionRow({
           <button
             type="submit"
             disabled={isDecrementing}
+            aria-label="余剰を1件減らす"
             className="w-9 h-9 flex items-center justify-center rounded-full bg-red-100 text-red-600 hover:bg-red-200 disabled:opacity-50 transition-colors leading-none pb-0.5 font-black text-xl shadow-sm"
             title="余剰を1件減らす"
           >

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSubmit } from "react-router";
 import {
   Dialog,
@@ -44,11 +44,21 @@ export function LaneActive({
   const submit = useSubmit();
   const [cancelOpen, setCancelOpen] = useState(false);
 
-  // タイマー終了状態（点滅 CSS のトリガー）。timer 未設定時は false。
+  // タイマー動作中は 1 秒ごとに再評価して isFinished をリアクティブにする
+  // （子の LaneTimer が tick しても親の data-finished には伝播しないため）
+  const isTimerRunning = targetDurationSec !== null && timerStartedAt !== null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isTimerRunning) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [isTimerRunning]);
+
   const isFinished =
-    targetDurationSec !== null &&
+    isTimerRunning &&
     timerStartedAt !== null &&
-    Math.floor((Date.now() - parseJst(timerStartedAt)) / 1000) >= targetDurationSec;
+    targetDurationSec !== null &&
+    Math.floor((now - parseJst(timerStartedAt)) / 1000) >= targetDurationSec;
 
   const handleComplete = useCallback(() => {
     stopTimerEndSound(batchId);

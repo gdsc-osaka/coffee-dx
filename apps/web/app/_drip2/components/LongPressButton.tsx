@@ -1,8 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * 1 秒の長押しで onLongPress を発火する誤タップ防止ボタン。
  * 動かしすぎや離した時点で長押しはキャンセルされる。
+ *
+ * アクセシビリティ: キーボード（Enter / Space）操作では長押し待機なしに
+ * 即 onLongPress を発火する（ATでは「意図的な操作」が前提のため）。
  */
 export function LongPressButton({
   onLongPress,
@@ -29,6 +32,12 @@ export function LongPressButton({
     }
     setIsPressing(false);
   }, []);
+
+  // unmount 時 / disabled 切替時に保留中のタイマーを必ずクリア
+  useEffect(() => {
+    if (disabled) cancel();
+    return cancel;
+  }, [disabled, cancel]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -74,6 +83,18 @@ export function LongPressButton({
     [cancel],
   );
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      if (disabled) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        // キーボード/AT は意図的操作とみなし、長押し待ちなしで発火
+        onLongPress();
+      }
+    },
+    [disabled, onLongPress],
+  );
+
   return (
     <button
       type="button"
@@ -86,11 +107,12 @@ export function LongPressButton({
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
       onPointerLeave={handlePointerEnd}
+      onKeyDown={handleKeyDown}
     >
       {isPressing && (
         <span
           aria-hidden="true"
-          className="absolute inset-y-0 left-0 bg-red-200 pointer-events-none"
+          className="absolute inset-0 origin-left bg-red-200 pointer-events-none"
           style={{
             animation: `drip-long-press ${duration}ms linear forwards`,
           }}
