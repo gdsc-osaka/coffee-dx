@@ -201,7 +201,7 @@ export default function DripHome({
     // connect() 呼び出しごとに再代入され、reconnectImmediately() や useEffect の
     // cleanup から呼ぶことで「古いソケットに紐づくハートビートタイマーが
     // 新しいソケットへ ping を送る」リークを防ぐ。
-    let teardownConnection = () => { };
+    let teardownConnection = () => {};
     let unmounted = false;
 
     const connect = () => {
@@ -633,10 +633,11 @@ function MenuSection({
                   key={num}
                   type="button"
                   onClick={() => onCountChange(num)}
-                  className={`w-20 h-20 text-4xl font-black rounded-2xl transition-colors shadow-sm border-4 ${isActive
+                  className={`w-20 h-20 text-4xl font-black rounded-2xl transition-colors shadow-sm border-4 ${
+                    isActive
                       ? "bg-amber-100 border-amber-500 text-amber-700"
                       : "bg-white border-stone-200 text-stone-500 hover:bg-stone-50 active:bg-stone-100"
-                    }`}
+                  }`}
                 >
                   {num}
                 </button>
