@@ -17,6 +17,11 @@ vi.mock("react-router", () => ({
   useSubmit: useSubmitMock,
 }));
 
+// テストではタイマー UI を有効にして検証する。本番では一時的に無効化中。
+vi.mock("./constants", () => ({
+  TIMER_FEATURE_ENABLED: true,
+}));
+
 import DripHome from "./home";
 
 type BrewUnit = {
@@ -177,9 +182,7 @@ describe("DripHome", () => {
       return section;
     });
 
-    expect(
-      within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
-    ).toBeInTheDocument();
+    expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeInTheDocument();
     // 固定 3 レーン枠が常に表示される
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
@@ -239,9 +242,7 @@ describe("DripHome", () => {
       expect(
         within(lanesSection).queryByRole("button", { name: /スワイプで完了/ }),
       ).not.toBeInTheDocument();
-      expect(
-        within(lanesSection).queryByRole("button", { name: /取消 \(1秒長押し\)/ }),
-      ).not.toBeInTheDocument();
+      expect(within(lanesSection).queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
     });
     // レーン枠は固定 3 個で常時表示される（レーン 1〜3 の見出し）
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
@@ -316,9 +317,7 @@ describe("DripHome", () => {
     expect(
       within(lanesSection).getByRole("button", { name: /スワイプで完了/ }),
     ).toBeInTheDocument();
-    expect(
-      within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
-    ).toBeInTheDocument();
+    expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeInTheDocument();
   });
 
   it("brewing バッチは batch.laneIndex のスロットへ表示される（端末間で同じ位置）", async () => {

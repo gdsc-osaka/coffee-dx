@@ -145,7 +145,7 @@ export function MenuSection({
                     disabled={isCompleting || isCancelling}
                     className="px-4 sm:px-6 py-4 sm:py-5 text-lg sm:text-xl font-bold bg-white border-2 border-stone-200 text-stone-400 rounded-2xl disabled:opacity-50 active:scale-95 transition-transform"
                   >
-                    {isCancelling ? "..." : "取消し"}
+                    {isCancelling ? "..." : "取消"}
                   </button>
                 </Form>
               </div>

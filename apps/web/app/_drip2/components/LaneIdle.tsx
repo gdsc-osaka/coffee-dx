@@ -1,4 +1,5 @@
 import { Form } from "react-router";
+import { TIMER_FEATURE_ENABLED } from "../constants";
 import { formatDuration } from "../utils/formatDuration";
 
 export type LaneIdleState = {
@@ -29,7 +30,11 @@ export function LaneIdle({
   onChangeState: (next: LaneIdleState) => void;
   onStart: () => void;
 }) {
-  const canStart = state.menuItemId !== null && state.count >= 1 && state.durationSec > 0;
+  // タイマー機能が無効の間は durationSec を必須にしない
+  const canStart =
+    state.menuItemId !== null &&
+    state.count >= 1 &&
+    (!TIMER_FEATURE_ENABLED || state.durationSec > 0);
 
   const updateDuration = (delta: number) => {
     onChangeState({
@@ -89,44 +94,46 @@ export function LaneIdle({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-sm font-bold text-stone-500">タイマー</span>
-        <div className="flex flex-col items-center justify-center py-3 bg-stone-50 rounded-2xl">
-          <span className="text-4xl font-black tabular-nums text-stone-800">
-            {formatDuration(state.durationSec)}
-          </span>
+      {TIMER_FEATURE_ENABLED && (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-bold text-stone-500">タイマー</span>
+          <div className="flex flex-col items-center justify-center py-3 bg-stone-50 rounded-2xl">
+            <span className="text-4xl font-black tabular-nums text-stone-800">
+              {formatDuration(state.durationSec)}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => updateDuration(10)}
+              className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+            >
+              +10秒
+            </button>
+            <button
+              type="button"
+              onClick={() => updateDuration(60)}
+              className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+            >
+              +1分
+            </button>
+            <button
+              type="button"
+              onClick={() => updateDuration(180)}
+              className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
+            >
+              +3分
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeState({ ...state, durationSec: 0 })}
+              className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-500 font-bold hover:bg-stone-100"
+            >
+              リセット
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => updateDuration(10)}
-            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
-          >
-            +10秒
-          </button>
-          <button
-            type="button"
-            onClick={() => updateDuration(60)}
-            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
-          >
-            +1分
-          </button>
-          <button
-            type="button"
-            onClick={() => updateDuration(180)}
-            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-700 font-bold hover:bg-stone-100"
-          >
-            +3分
-          </button>
-          <button
-            type="button"
-            onClick={() => onChangeState({ ...state, durationSec: 0 })}
-            className="px-3 py-2 rounded-xl bg-white border-2 border-stone-200 text-stone-500 font-bold hover:bg-stone-100"
-          >
-            リセット
-          </button>
-        </div>
-      </div>
+      )}
 
       <Form method="post" onSubmit={onStart}>
         <input type="hidden" name="intent" value="brew-start" />
