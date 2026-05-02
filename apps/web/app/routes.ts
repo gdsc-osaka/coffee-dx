@@ -12,6 +12,9 @@ export default [
   // ドリップ係画面（loaderで認証ガード）
   layout("_drip.tsx", [...prefix("drip", [index("_drip/home.tsx")])]),
 
+  // ドリップ係画面 新 UI（物理レーン × タイマー統合版、/drip と並走運用）
+  layout("_drip2.tsx", [...prefix("drip2", [index("_drip2/home.tsx")])]),
+
   // 会計係画面（loaderで認証ガード）
   // orders-history は会計係向けのデータ取得 API。CashierHeader の履歴ダイアログから fetch されるが、
   // ルート定義上は _cashier レイアウト配下に置いて auth ガードの対象に含める。

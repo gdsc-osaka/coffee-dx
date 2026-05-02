@@ -76,6 +76,23 @@ export const brewUnits = sqliteTable(
       onDelete: "set null",
     }),
     status: text("status").notNull().default("brewing"),
+    /**
+     * ドリップ係が指定したタイマー秒数。NULL は未設定（タイマー未使用）。
+     * timerStartedAt との差分でクライアント側がカウントダウンを再現する。
+     * 抽出開始とは独立して何度でも再設定できる。
+     */
+    targetDurationSec: integer("target_duration_sec"),
+    /**
+     * タイマー Start 押下時刻。NULL はタイマー未開始。
+     * 抽出開始 (createdAt) とは独立に管理し、再 Start でリセットされる。
+     */
+    timerStartedAt: text("timer_started_at"),
+    /**
+     * 物理ドリッパー（レーン枠）の位置。0 はレーン 1、1 はレーン 2 ...
+     * 全端末で同じレーン位置に同じバッチを表示するため DB に永続化する。
+     * 旧データ互換のため NOT NULL DEFAULT 0。
+     */
+    laneIndex: integer("lane_index").notNull().default(0),
     /** 業務日 YYYY-MM-DD。order_number_counters.business_date と同じ命名。 */
     businessDate: text("business_date").notNull(),
     createdAt: text("created_at").notNull().default(jstNow),

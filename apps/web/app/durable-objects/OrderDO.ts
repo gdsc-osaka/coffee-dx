@@ -30,6 +30,12 @@ type BrewUnitData = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
+  /** ドリップ係が指定したタイマー秒数。NULL はタイマー未設定。 */
+  targetDurationSec: number | null;
+  /** タイマー Start 時刻 (ISO 8601)。NULL はタイマー未開始。 */
+  timerStartedAt: string | null;
+  /** 物理ドリッパー（レーン枠）の位置 (0 始まり)。全端末で同じ表示にするため永続化 */
+  laneIndex: number;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -41,7 +47,19 @@ type ServerMessage =
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
-  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string }
+  | { type: "pong" };
+
+/**
+ * targetDurationSec の正規化。
+ * NaN / 非数 / 1 秒未満（負数や小数で 0 に丸まる値を含む）はすべて null にする。
+ * brew-start と brew-set-timer の両経路で同じ判定を使う。
+ */
+function normalizeTargetDurationSec(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const seconds = Math.floor(value);
+  return seconds >= 1 ? seconds : null;
+}
 
 export class OrderDurableObject implements DurableObject {
   private readonly orders = new Map<string, OrderData>();
@@ -94,6 +112,12 @@ export class OrderDurableObject implements DurableObject {
     const cancelMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)\/cancel$/);
     if (request.method === "POST" && cancelMatch) {
       return this.handleBatchCancel(cancelMatch[1]);
+    }
+
+    // POST /do/brew-units/batch/:batchId/timer  →  タイマー開始 / 再設定
+    const timerMatch = url.pathname.match(/^\/do\/brew-units\/batch\/([^/]+)\/timer$/);
+    if (request.method === "POST" && timerMatch) {
+      return this.handleBatchSetTimer(timerMatch[1], request);
     }
 
     // DELETE /do/brew-units/menu/:menuId/surplus  →  メニューごとの余剰削除（1件ずつ）
@@ -221,6 +245,9 @@ export class OrderDurableObject implements DurableObject {
             menuItemName: menuNameById.get(u.menuItemId) ?? "",
             orderItemId: u.orderItemId,
             status: u.status as "brewing" | "ready",
+            targetDurationSec: u.targetDurationSec,
+            timerStartedAt: u.timerStartedAt,
+            laneIndex: u.laneIndex,
             businessDate: u.businessDate,
             createdAt: u.createdAt,
             updatedAt: u.updatedAt,
@@ -259,6 +286,22 @@ export class OrderDurableObject implements DurableObject {
 
     server.addEventListener("close", () => this.sessions.delete(server));
     server.addEventListener("error", () => this.sessions.delete(server));
+
+    // クライアントからのアプリケーション層 ping に pong で応答する。
+    // Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）や NAT 再起動などで
+    // TCP が「半開き」になった際、クライアント側が onclose を受け取れないままに
+    // なる現象を防ぐため、フレーム往復をクライアント主導で確認させる。
+    server.addEventListener("message", (event: MessageEvent) => {
+      if (typeof event.data !== "string") return;
+      try {
+        const msg = JSON.parse(event.data) as { type?: unknown };
+        if (msg && msg.type === "ping") {
+          server.send(JSON.stringify({ type: "pong" }));
+        }
+      } catch {
+        // 不正な JSON / 想定外メッセージは無視
+      }
+    });
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -336,8 +379,16 @@ export class OrderDurableObject implements DurableObject {
     const body = (await request.json()) as {
       menuItemId: string;
       count: number;
+      laneIndex?: number;
+      targetDurationSec?: number | null;
     };
     const { menuItemId, count } = body;
+    const targetDurationSec = normalizeTargetDurationSec(body.targetDurationSec);
+    // laneIndex は 0 以上の整数。負値や未指定は 0 (レーン 1) とみなす。
+    const laneIndex =
+      typeof body.laneIndex === "number" && Number.isFinite(body.laneIndex) && body.laneIndex >= 0
+        ? Math.floor(body.laneIndex)
+        : 0;
 
     if (!menuItemId || !count || count < 1) return new Response("Invalid body", { status: 400 });
 
@@ -357,6 +408,9 @@ export class OrderDurableObject implements DurableObject {
 
     const batchId = crypto.randomUUID();
     const now = new Date().toISOString();
+    // targetDurationSec を渡された場合のみ timerStartedAt も同時に開始する。
+    // タイマーは抽出開始と独立に後付けで設定することも可能（/timer エンドポイント）。
+    const initialTimerStartedAt = targetDurationSec === null ? null : now;
     const newUnits: BrewUnitData[] = Array.from({ length: count }, () => ({
       id: crypto.randomUUID(),
       batchId,
@@ -364,6 +418,9 @@ export class OrderDurableObject implements DurableObject {
       menuItemName: menuRecord.name,
       orderItemId: null,
       status: "brewing" as const,
+      targetDurationSec,
+      timerStartedAt: initialTimerStartedAt,
+      laneIndex,
       businessDate,
       createdAt: now,
       updatedAt: now,
@@ -377,6 +434,9 @@ export class OrderDurableObject implements DurableObject {
           menuItemId: u.menuItemId,
           orderItemId: null,
           status: u.status,
+          targetDurationSec: u.targetDurationSec,
+          timerStartedAt: u.timerStartedAt,
+          laneIndex: u.laneIndex,
           businessDate: u.businessDate,
           createdAt: u.createdAt,
           updatedAt: u.updatedAt,
@@ -551,6 +611,46 @@ export class OrderDurableObject implements DurableObject {
       }
 
       return new Response(null, { status: 200 });
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // BrewUnit: タイマー設定 / 再設定（バッチ単位）
+  // 抽出開始 (createdAt) とは独立に、タイマーを後付けで開始したり、終了後に再開
+  // したりする用途。targetDurationSec=null を渡せばタイマー解除（クリア）。
+  // ---------------------------------------------------------------------------
+
+  private async handleBatchSetTimer(batchId: string, request: Request): Promise<Response> {
+    const body = (await request.json()) as { targetDurationSec?: number | null };
+    const targetDurationSec = normalizeTargetDurationSec(body.targetDurationSec);
+    const now = new Date().toISOString();
+    const timerStartedAt = targetDurationSec === null ? null : now;
+
+    return this.state.blockConcurrencyWhile(async () => {
+      const targetUnits = [...this.brewUnits.values()].filter(
+        (u) => u.batchId === batchId && u.status === "brewing",
+      );
+      if (targetUnits.length === 0) {
+        return new Response("Batch not found or not active", { status: 404 });
+      }
+
+      const db = createDb(this.env.DB);
+      await this.writeWithRetry(() =>
+        db
+          .update(brewUnits)
+          .set({ targetDurationSec, timerStartedAt, updatedAt: now })
+          .where(and(eq(brewUnits.batchId, batchId), eq(brewUnits.status, "brewing"))),
+      );
+
+      for (const u of targetUnits) {
+        u.targetDurationSec = targetDurationSec;
+        u.timerStartedAt = timerStartedAt;
+        u.updatedAt = now;
+        this.brewUnits.set(u.id, u);
+        this.broadcast({ type: "BREW_UNIT_UPDATED", brewUnit: { ...u } });
+      }
+
+      return new Response(null, { status: 204 });
     });
   }
 

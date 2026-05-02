@@ -1,0 +1,1 @@
+ALTER TABLE `brew_units` ADD `lane_index` integer DEFAULT 0 NOT NULL;
