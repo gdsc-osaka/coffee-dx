@@ -9,6 +9,7 @@ export type ReceiptData = {
   orderNumber: number;
   items: ReceiptItem[];
   timestamp: Date;
+  isFree?: boolean;
 };
 
 /**
@@ -112,6 +113,12 @@ export class ReceiptGenerator {
     ctx.textBaseline = "top";
     ctx.font = '700 120px "Google Sans Code"';
     ctx.fillText(`#${data.orderNumber}`, canvas.width / 2, 76);
+
+    // 無料注文の場合は「FREE」スタンプを受付番号の下に描画する
+    if (data.isFree) {
+      ctx.font = '700 48px "Google Sans Code"';
+      ctx.fillText("** FREE **", canvas.width / 2, 210);
+    }
 
     // ビットマップフォントはロード済み
 

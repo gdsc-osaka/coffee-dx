@@ -18,6 +18,7 @@ type HistoryOrder = {
   id: string;
   orderNumber: number;
   status: OrderStatus;
+  isFree: boolean;
   createdAt: string; // ISO 文字列（loader が toISOString() で返す）
   items: HistoryItem[];
 };
@@ -136,6 +137,7 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
         orderNumber: order.orderNumber,
         items: order.items.map((i) => ({ name: i.name, quantity: i.quantity })),
         timestamp: new Date(order.createdAt),
+        isFree: order.isFree,
       });
       await printerClient.print(canvas);
     } catch (e) {
@@ -173,11 +175,18 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
                     {formatJstShort(order.createdAt)}
                   </span>
                 </div>
-                <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor[order.status]}`}
-                >
-                  {statusLabel[order.status]}
-                </span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {order.isFree && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/30">
+                      無料
+                    </span>
+                  )}
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full border ${statusColor[order.status]}`}
+                  >
+                    {statusLabel[order.status]}
+                  </span>
+                </div>
               </div>
               <ul className="space-y-0.5">
                 {order.items.map((item) => (

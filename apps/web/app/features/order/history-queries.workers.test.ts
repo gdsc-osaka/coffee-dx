@@ -20,6 +20,7 @@ async function seedOrder(
     orderNumber: number;
     createdAt: string;
     status?: "pending" | "brewing" | "ready" | "completed" | "cancelled";
+    isFree?: boolean;
     items?: Array<{ id: string; menuItemId: string; quantity: number }>;
   },
 ) {
@@ -28,6 +29,7 @@ async function seedOrder(
     businessDate: options.createdAt.slice(0, 10),
     orderNumber: options.orderNumber,
     status: options.status ?? "completed",
+    isFree: options.isFree ? 1 : 0,
     createdAt: options.createdAt,
     updatedAt: options.createdAt,
   });
@@ -178,5 +180,25 @@ describe("getRecentOrders", () => {
 
     const result = await getRecentOrders(d1Db, { limit: 10 });
     expect(result.orders.map((o) => o.status)).toEqual(["pending", "completed", "cancelled"]);
+  });
+
+  it("is_free 列が boolean として返る", async () => {
+    await seedOrder(db, {
+      id: "o-paid",
+      orderNumber: 1,
+      createdAt: "2026-04-26 09:00:00",
+      isFree: false,
+    });
+    await seedOrder(db, {
+      id: "o-free",
+      orderNumber: 2,
+      createdAt: "2026-04-26 10:00:00",
+      isFree: true,
+    });
+
+    const result = await getRecentOrders(d1Db, { limit: 10 });
+    const byId = new Map(result.orders.map((o) => [o.id, o]));
+    expect(byId.get("o-free")?.isFree).toBe(true);
+    expect(byId.get("o-paid")?.isFree).toBe(false);
   });
 });

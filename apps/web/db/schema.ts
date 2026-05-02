@@ -23,6 +23,7 @@ export const orders = sqliteTable(
     businessDate: text("business_date").notNull(),
     orderNumber: integer("order_number").notNull(),
     status: text("status").notNull().default("pending"),
+    isFree: integer("is_free").notNull().default(0),
     createdAt: text("created_at").notNull().default(jstNow),
     updatedAt: text("updated_at").notNull().default(jstNow),
   },

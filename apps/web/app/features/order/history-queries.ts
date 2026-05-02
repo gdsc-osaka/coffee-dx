@@ -16,6 +16,7 @@ export type HistoryOrder = {
   id: string;
   orderNumber: number;
   status: "pending" | "brewing" | "ready" | "completed" | "cancelled";
+  isFree: boolean;
   createdAt: Date;
   items: HistoryOrderItem[];
 };
@@ -96,6 +97,7 @@ export async function getRecentOrders(
     id: o.id,
     orderNumber: o.orderNumber,
     status: o.status as HistoryOrder["status"],
+    isFree: o.isFree === 1,
     createdAt: parseJstString(o.createdAt),
     items: itemsByOrderId.get(o.id) ?? [],
   }));
