@@ -15,6 +15,11 @@ vi.mock("react-router", () => ({
   useSubmit: useSubmitMock,
 }));
 
+// テストではタイマー UI を有効にして検証する。本番では一時的に無効化中。
+vi.mock("../constants", () => ({
+  TIMER_FEATURE_ENABLED: true,
+}));
+
 import { LaneActive } from "./LaneActive";
 
 beforeAll(() => {
