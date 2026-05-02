@@ -3,6 +3,16 @@ import { Form } from "react-router";
 
 import { Button } from "~/components/ui/button";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "~/components/ui/dialog";
 import { parseJstString } from "~/lib/datetime";
 import { cn } from "~/lib/utils";
 
@@ -27,6 +37,10 @@ type OrderStatusCardProps = {
     fields: Array<{ name: string; value: string }>;
   };
   actionPlaceholder?: string;
+  cancelAction?: {
+    fields: Array<{ name: string; value: string }>;
+    isSubmitting?: boolean;
+  };
   className?: string;
 };
 
@@ -64,6 +78,7 @@ export function OrderStatusCard({
   items,
   action,
   actionPlaceholder,
+  cancelAction,
   className,
 }: OrderStatusCardProps) {
   const cfg = statusConfig[status];
@@ -153,21 +168,69 @@ export function OrderStatusCard({
           )}
           {!items || items.length === 0 ? <div className="flex-1" /> : null}
 
-          {action ? (
-            <Form method="post" className="mt-auto">
-              {action.fields.map((field) => (
-                <input key={field.name} type="hidden" name={field.name} value={field.value} />
-              ))}
-              <Button
-                type="submit"
-                className={cn("h-16 w-full text-base font-bold rounded-xl", cfg.buttonClass)}
-                disabled={action.isSubmitting}
-              >
-                {action.isSubmitting ? "更新中..." : action.label}
-              </Button>
-            </Form>
-          ) : actionPlaceholder ? (
-            <p className="mt-auto py-4 text-center text-xs text-stone-400">{actionPlaceholder}</p>
+          {action || actionPlaceholder || cancelAction ? (
+            <div className="mt-auto">
+              {action ? (
+                <Form method="post">
+                  {action.fields.map((field) => (
+                    <input key={field.name} type="hidden" name={field.name} value={field.value} />
+                  ))}
+                  <Button
+                    type="submit"
+                    className={cn("h-16 w-full text-base font-bold rounded-xl", cfg.buttonClass)}
+                    disabled={action.isSubmitting}
+                  >
+                    {action.isSubmitting ? "更新中..." : action.label}
+                  </Button>
+                </Form>
+              ) : actionPlaceholder ? (
+                <p className="py-4 text-center text-xs text-stone-400">{actionPlaceholder}</p>
+              ) : null}
+
+              {cancelAction ? (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 h-8 w-full text-xs text-red-500 hover:bg-red-50 hover:text-red-600"
+                      disabled={cancelAction.isSubmitting}
+                    >
+                      {cancelAction.isSubmitting ? "キャンセル中..." : "注文をキャンセル"}
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>注文をキャンセル</DialogTitle>
+                      <DialogDescription>
+                        注文 #{orderNumber} をキャンセルします。元に戻すことはできません。
+                      </DialogDescription>
+                    </DialogHeader>
+                    <Form method="post">
+                      {cancelAction.fields.map((field) => (
+                        <input
+                          key={field.name}
+                          type="hidden"
+                          name={field.name}
+                          value={field.value}
+                        />
+                      ))}
+                      <DialogFooter className="mt-2">
+                        <DialogClose asChild>
+                          <Button type="button" variant="outline">
+                            戻る
+                          </Button>
+                        </DialogClose>
+                        <Button type="submit" variant="destructive">
+                          キャンセルする
+                        </Button>
+                      </DialogFooter>
+                    </Form>
+                  </DialogContent>
+                </Dialog>
+              ) : null}
+            </div>
           ) : null}
         </CardContent>
       </Card>

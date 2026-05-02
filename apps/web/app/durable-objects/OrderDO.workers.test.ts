@@ -372,4 +372,134 @@ describe("OrderDO", () => {
     const remaining = await db.select().from(brewUnits);
     expect(remaining).toHaveLength(0);
   });
+
+  // ---------------------------------------------------------------------------
+  // POST /do/orders/:id/cancel
+  // ---------------------------------------------------------------------------
+
+  describe("POST /do/orders/:id/cancel", () => {
+    const cancelOrder = (orderId: string) =>
+      stub.fetch(
+        new Request(`http://localhost/do/orders/${orderId}/cancel`, {
+          method: "POST",
+          headers: { "x-event-id": eventId },
+        }),
+      );
+
+    it("pending な注文をキャンセルすると 200 + ORDER_UPDATED(cancelled) + DB が cancelled", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "pending");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(200);
+
+      const m = await queue.next();
+      expect(m.type).toBe("ORDER_UPDATED");
+      expect(m.orderId).toBe("o1");
+      expect(m.status).toBe("cancelled");
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe("cancelled");
+    });
+
+    it("brewing な注文をキャンセルできる", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "brewing");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(200);
+
+      const m = await queue.next();
+      expect(m.type).toBe("ORDER_UPDATED");
+      expect(m.status).toBe("cancelled");
+    });
+
+    it("ready な注文のキャンセルは 409 を返し、DB は ready のまま", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "ready");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      ws.accept();
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(409);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe("ready");
+    });
+
+    it("既に cancelled な注文を再度キャンセルすると 404 (DO メモリから削除済み)", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "pending");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      const first = await cancelOrder("o1");
+      expect(first.status).toBe(200);
+      await queue.next(); // ORDER_UPDATED(cancelled)
+
+      const second = await cancelOrder("o1");
+      expect(second.status).toBe(404);
+    });
+
+    it("存在しない注文のキャンセルは 404", async () => {
+      const ws = await connectWebSocket();
+      ws.accept();
+
+      const res = await cancelOrder("does-not-exist");
+      expect(res.status).toBe(404);
+    });
+
+    it("紐付き brew_unit がキャンセル時に削除され BREW_UNIT_DELETED がブロードキャストされる", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "brewing");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const now = isoNow();
+      await db.insert(brewUnits).values([
+        {
+          id: "u1",
+          batchId: "b1",
+          menuItemId: "m1",
+          status: "brewing",
+          orderItemId: "i1",
+          businessDate: eventId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(200);
+
+      // ORDER_UPDATED(cancelled) と BREW_UNIT_DELETED の 2 件
+      const messages = await queue.take(2);
+      const orderUpdate = messages.find((m) => m.type === "ORDER_UPDATED");
+      const unitDelete = messages.find((m) => m.type === "BREW_UNIT_DELETED");
+      expect(orderUpdate?.status).toBe("cancelled");
+      expect(unitDelete?.brewUnitId).toBe("u1");
+    });
+  });
 });

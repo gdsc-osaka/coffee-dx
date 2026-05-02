@@ -64,6 +64,7 @@ export async function loader(_args: Route.LoaderArgs) {
 
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
+  const intent = formData.get("intent");
   const orderId = formData.get("orderId");
   const eventId = formData.get("eventId");
 
@@ -74,13 +75,25 @@ export async function action({ request, context }: Route.ActionArgs) {
     return { ok: false, error: "eventId が不正です" };
   }
 
+  const stub = getOrderDOStub(context.cloudflare.env, eventId);
+  const path =
+    intent === "cancel"
+      ? `/do/orders/${encodeURIComponent(orderId)}/cancel`
+      : `/do/orders/${encodeURIComponent(orderId)}/close`;
+
   try {
-    const stub = getOrderDOStub(context.cloudflare.env, eventId);
-    await callOrderDO(stub, eventId, `/do/orders/${encodeURIComponent(orderId)}/close`, {
-      method: "POST",
-    });
+    await callOrderDO(stub, eventId, path, { method: "POST" });
     return { ok: true, orderId };
-  } catch {
+  } catch (e) {
+    const isConflict = e instanceof Error && e.message.includes("DO error 409");
+    if (intent === "cancel") {
+      return {
+        ok: false,
+        error: isConflict
+          ? "提供済みの注文はキャンセルできません。"
+          : "キャンセルに失敗しました。少し待って再度お試しください。",
+      };
+    }
     return {
       ok: false,
       error: "提供済みの更新に失敗しました。少し待って再度お試しください。",
@@ -310,8 +323,9 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
     [allOrdersSorted],
   );
 
-  const submittingOrderId =
-    navigation.state === "submitting" ? navigation.formData?.get("orderId") : null;
+  const isSubmitting = navigation.state === "submitting";
+  const submittingOrderId = isSubmitting ? navigation.formData?.get("orderId") : null;
+  const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
 
   const isEmpty = isSnapshotLoaded && allOrdersSorted.length === 0;
 
@@ -362,7 +376,10 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                 <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
                   <div className="w-6 shrink-0" />
                   {readyOrders.map((order) => {
-                    const isSubmittingThisOrder = submittingOrderId === order.id;
+                    const isCompletingThisOrder =
+                      submittingOrderId === order.id && submittingIntent !== "cancel";
+                    const isCancellingThisOrder =
+                      submittingOrderId === order.id && submittingIntent === "cancel";
                     // 仮想 ready のみで実 status が pending/brewing の場合、サーバ側 /close は 409 になる。
                     // ボタンは出さず、ドリップ完了の確定を待つプレースホルダを表示する。
                     const canClose = order.serverStatus === "ready";
@@ -385,8 +402,9 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                           canClose
                             ? {
                                 label: "完了",
-                                isSubmitting: isSubmittingThisOrder,
+                                isSubmitting: isCompletingThisOrder,
                                 fields: [
+                                  { name: "intent", value: "complete" },
                                   { name: "orderId", value: order.id },
                                   { name: "eventId", value: eventId },
                                 ],
@@ -394,6 +412,14 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                             : undefined
                         }
                         actionPlaceholder={canClose ? undefined : "ドリップ完了後に提供できます"}
+                        cancelAction={{
+                          isSubmitting: isCancellingThisOrder,
+                          fields: [
+                            { name: "intent", value: "cancel" },
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                          ],
+                        }}
                       />
                     );
                   })}
@@ -416,23 +442,35 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
               ) : (
                 <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
                   <div className="w-6 shrink-0" />
-                  {brewingOrders.map((order) => (
-                    <OrderStatusCard
-                      key={order.id}
-                      status="brewing"
-                      orderNumber={order.orderNumber}
-                      createdAt={order.createdAt}
-                      itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
-                      items={order.items.map((item) => ({
-                        id: item.id,
-                        name: item.name,
-                        quantity: item.quantity,
-                        readyCount: item.readyCount,
-                        brewingCount: item.brewingCount,
-                        pendingCount: item.pendingCount,
-                      }))}
-                    />
-                  ))}
+                  {brewingOrders.map((order) => {
+                    const isCancellingThisOrder =
+                      submittingOrderId === order.id && submittingIntent === "cancel";
+                    return (
+                      <OrderStatusCard
+                        key={order.id}
+                        status="brewing"
+                        orderNumber={order.orderNumber}
+                        createdAt={order.createdAt}
+                        itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
+                        items={order.items.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                          quantity: item.quantity,
+                          readyCount: item.readyCount,
+                          brewingCount: item.brewingCount,
+                          pendingCount: item.pendingCount,
+                        }))}
+                        cancelAction={{
+                          isSubmitting: isCancellingThisOrder,
+                          fields: [
+                            { name: "intent", value: "cancel" },
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                          ],
+                        }}
+                      />
+                    );
+                  })}
                   <div className="w-6 shrink-0" />
                 </div>
               )}
@@ -452,23 +490,35 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
               ) : (
                 <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory scroll-pl-6">
                   <div className="w-6 shrink-0" />
-                  {pendingOrders.map((order) => (
-                    <OrderStatusCard
-                      key={order.id}
-                      status="pending"
-                      orderNumber={order.orderNumber}
-                      createdAt={order.createdAt}
-                      itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
-                      items={order.items.map((item) => ({
-                        id: item.id,
-                        name: item.name,
-                        quantity: item.quantity,
-                        readyCount: item.readyCount,
-                        brewingCount: item.brewingCount,
-                        pendingCount: item.pendingCount,
-                      }))}
-                    />
-                  ))}
+                  {pendingOrders.map((order) => {
+                    const isCancellingThisOrder =
+                      submittingOrderId === order.id && submittingIntent === "cancel";
+                    return (
+                      <OrderStatusCard
+                        key={order.id}
+                        status="pending"
+                        orderNumber={order.orderNumber}
+                        createdAt={order.createdAt}
+                        itemCount={order.items.reduce((sum, item) => sum + item.quantity, 0)}
+                        items={order.items.map((item) => ({
+                          id: item.id,
+                          name: item.name,
+                          quantity: item.quantity,
+                          readyCount: item.readyCount,
+                          brewingCount: item.brewingCount,
+                          pendingCount: item.pendingCount,
+                        }))}
+                        cancelAction={{
+                          isSubmitting: isCancellingThisOrder,
+                          fields: [
+                            { name: "intent", value: "cancel" },
+                            { name: "orderId", value: order.id },
+                            { name: "eventId", value: eventId },
+                          ],
+                        }}
+                      />
+                    );
+                  })}
                   <div className="w-6 shrink-0" />
                 </div>
               )}
