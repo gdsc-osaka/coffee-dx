@@ -196,6 +196,11 @@ export default function DripHome({
   // WebSocket 接続
   useEffect(() => {
     let socket: WebSocket | null = null;
+    // 直近 connect() で作成したソケット・タイマーを一括解放するクロージャ。
+    // connect() 呼び出しごとに再代入され、reconnectImmediately() や useEffect の
+    // cleanup から呼ぶことで「古いソケットに紐づくハートビートタイマーが
+    // 新しいソケットへ ping を送る」リークを防ぐ。
+    let teardownConnection = () => {};
     let unmounted = false;
 
     const connect = () => {
@@ -216,31 +221,47 @@ export default function DripHome({
       };
 
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
+      // この connect() 内で常に同じソケットを参照するため const に固定する。
+      // 外側 socket は次の connect() で上書きされるが、ここのコールバックは
+      // currentSocket だけを見るので「古いタイマーが新しいソケットを操作する」事故が起きない。
+      const currentSocket = new WebSocket(
+        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
+      );
+      socket = currentSocket;
 
-      socket.onopen = () => {
+      teardownConnection = () => {
+        clearHeartbeatTimers();
+        currentSocket.onclose = null;
+        currentSocket.onerror = null;
+        if (currentSocket.readyState !== WebSocket.CLOSED) {
+          currentSocket.close();
+        }
+        if (socket === currentSocket) socket = null;
+      };
+
+      currentSocket.onopen = () => {
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionError(null);
 
         pingIntervalId = window.setInterval(() => {
-          if (!socket || socket.readyState !== WebSocket.OPEN) return;
+          if (currentSocket.readyState !== WebSocket.OPEN) return;
           try {
-            socket.send(JSON.stringify({ type: "ping" }));
+            currentSocket.send(JSON.stringify({ type: "ping" }));
           } catch {
             // send 自体が失敗するソケットは確実に死んでいる。close 経由で再接続。
-            socket.close();
+            currentSocket.close();
             return;
           }
           if (pongTimeoutId !== null) window.clearTimeout(pongTimeoutId);
           pongTimeoutId = window.setTimeout(() => {
             // pong が返ってこない = 半開き接続。能動的に閉じて onclose の再接続経路に乗せる。
-            if (socket) socket.close();
+            currentSocket.close();
           }, PONG_TIMEOUT_MS);
         }, PING_INTERVAL_MS);
       };
 
-      socket.onmessage = (event) => {
+      currentSocket.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
 
@@ -315,7 +336,7 @@ export default function DripHome({
         }
       };
 
-      socket.onclose = () => {
+      currentSocket.onclose = () => {
         clearHeartbeatTimers();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
@@ -323,12 +344,16 @@ export default function DripHome({
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       };
 
-      socket.onerror = () => {
+      currentSocket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
         // onerror の後に onclose が必ず続くとは限らない（特定の Service Worker 経由や
-        // モバイルキャリアの中継機器で起こり得る）。明示的に close() を呼んで onclose 経路に
-        // 乗せる。既に CLOSED/CLOSING のソケットへの close() は no-op なので二重発火しない。
-        if (socket) socket.close();
+        // モバイルキャリアの中継機器で起こり得る）。onclose に依存せず、ここでも
+        // ハートビートタイマーを明示的に停止してから close() を呼ぶ。
+        // clearHeartbeatTimers() は冪等なので onclose 側で再度呼ばれても問題ない。
+        clearHeartbeatTimers();
+        if (currentSocket.readyState !== WebSocket.CLOSED) {
+          currentSocket.close();
+        }
       };
     };
 
@@ -341,13 +366,10 @@ export default function DripHome({
         reconnectTimeoutRef.current = null;
       }
       retryCountRef.current = 0;
-      if (socket && socket.readyState !== WebSocket.CLOSED) {
-        // 古いソケットの onclose が走るとバックオフ再接続が二重起動するため、
-        // ハンドラを外してから閉じる。
-        socket.onclose = null;
-        socket.onerror = null;
-        socket.close();
-      }
+      // 旧ソケットのハンドラ・ハートビートタイマーを teardown でまとめて解放する。
+      // 直接 socket.onclose = null してから close() するとタイマーが残り、
+      // 新しいソケットへ ping を送ったり close() してしまう。
+      teardownConnection();
       connect();
     };
 
@@ -369,7 +391,7 @@ export default function DripHome({
       document.removeEventListener("visibilitychange", handleVisibilityCheck);
       window.removeEventListener("pageshow", handleVisibilityCheck);
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
-      if (socket) socket.close();
+      teardownConnection();
     };
   }, [eventId]);
 
