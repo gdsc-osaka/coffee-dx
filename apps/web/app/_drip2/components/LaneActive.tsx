@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { parseJst } from "../utils/parseJst";
+import { stopTimerEndSound } from "../utils/audioUnlock";
 import { SwipeToConfirm } from "./SwipeToConfirm";
 import { LongPressButton } from "./LongPressButton";
 import { LaneTimer } from "./LaneTimer";
@@ -50,6 +51,7 @@ export function LaneActive({
     Math.floor((Date.now() - parseJst(timerStartedAt)) / 1000) >= targetDurationSec;
 
   const handleComplete = useCallback(() => {
+    stopTimerEndSound(batchId);
     const fd = new FormData();
     fd.append("intent", "brew-complete");
     fd.append("eventId", eventId);
@@ -58,6 +60,7 @@ export function LaneActive({
   }, [eventId, batchId, submit]);
 
   const handleCancelConfirmed = useCallback(() => {
+    stopTimerEndSound(batchId);
     const fd = new FormData();
     fd.append("intent", "brew-cancel");
     fd.append("eventId", eventId);

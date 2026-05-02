@@ -15,6 +15,11 @@ let audioCtx: AudioContext | null = null;
 let unlocked = false;
 let alarmBuffer: AudioBuffer | null = null;
 let alarmLoadPromise: Promise<void> | null = null;
+/**
+ * レーン (key = batchId) ごとに再生中のアラームソースを保持する。
+ * 複数レーンが同時に鳴ったとき、特定レーンだけを停止できるようにする。
+ */
+const activeAlarmSources = new Map<string, AudioBufferSourceNode>();
 
 function getCtxClass(): AudioCtxClass | null {
   if (typeof window === "undefined") return null;
@@ -88,22 +93,30 @@ export function isAudioUnlocked(): boolean {
 
 /**
  * タイマー終了通知音。/sounds/alarm.mp3 を再生する。
+ * 第 1 引数 key（batchId 想定）は同レーンの重複再生防止と停止 API での識別に使う。
  * MP3 が未ロードのときは 880Hz × 0.4s のビープ 3 連発を fallback として鳴らす。
  * AudioContext が unlock されていない場合は no-op。
  */
-export function playTimerEndSound(): void {
+export function playTimerEndSound(key: string): void {
   if (!audioCtx) return;
   if (audioCtx.state !== "running") return;
+
+  // 同じ key のソースがあれば先に停止（重複再生防止）
+  stopTimerEndSound(key);
 
   if (alarmBuffer) {
     const src = audioCtx.createBufferSource();
     src.buffer = alarmBuffer;
     src.connect(audioCtx.destination);
+    src.onended = () => {
+      if (activeAlarmSources.get(key) === src) activeAlarmSources.delete(key);
+    };
     src.start(0);
+    activeAlarmSources.set(key, src);
     return;
   }
 
-  // Fallback: 880Hz × 0.4s × 3 連発
+  // Fallback: 880Hz × 0.4s × 3 連発（短時間で自動終了するため停止トラッキングしない）
   const startAt = audioCtx.currentTime;
   for (let i = 0; i < 3; i++) {
     const osc = audioCtx.createOscillator();
@@ -120,10 +133,31 @@ export function playTimerEndSound(): void {
   }
 }
 
+/**
+ * 指定 key（batchId）のレーンで再生中のタイマー終了通知音を停止する。
+ * 他レーンのアラームには影響しない。鳴っていない場合は no-op。
+ */
+export function stopTimerEndSound(key: string): void {
+  const src = activeAlarmSources.get(key);
+  if (!src) return;
+  try {
+    src.stop(0);
+  } catch {
+    // 既に停止済みの場合は InvalidStateError が出る場合があるので握り潰す
+  }
+  activeAlarmSources.delete(key);
+}
+
 /** テスト用に内部状態をリセット */
 export function __resetAudioForTest(): void {
   audioCtx = null;
   unlocked = false;
   alarmBuffer = null;
   alarmLoadPromise = null;
+  activeAlarmSources.clear();
+}
+
+/** テスト用: alarm.mp3 のロード Promise を await する */
+export async function __awaitAlarmLoadForTest(): Promise<void> {
+  if (alarmLoadPromise) await alarmLoadPromise;
 }

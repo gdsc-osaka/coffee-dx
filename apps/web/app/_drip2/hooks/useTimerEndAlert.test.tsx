@@ -17,9 +17,12 @@ describe("useTimerEndAlert", () => {
   });
 
   it("remaining が初めて 0 以下に到達したときに 1 度だけ鳴る", () => {
-    const { rerender } = renderHook(({ r }: { r: number | null }) => useTimerEndAlert(r), {
-      initialProps: { r: 5 },
-    });
+    const { rerender } = renderHook(
+      ({ r }: { r: number | null }) => useTimerEndAlert(r, "batch-1"),
+      {
+        initialProps: { r: 5 },
+      },
+    );
     expect(playMock).not.toHaveBeenCalled();
 
     rerender({ r: 1 });
@@ -35,9 +38,12 @@ describe("useTimerEndAlert", () => {
   });
 
   it("タイマー再設定で remaining が再び正の値に戻ったあと 0 に到達すると再度鳴る", () => {
-    const { rerender } = renderHook(({ r }: { r: number | null }) => useTimerEndAlert(r), {
-      initialProps: { r: 1 },
-    });
+    const { rerender } = renderHook(
+      ({ r }: { r: number | null }) => useTimerEndAlert(r, "batch-1"),
+      {
+        initialProps: { r: 1 },
+      },
+    );
 
     rerender({ r: 0 });
     expect(playMock).toHaveBeenCalledTimes(1);
@@ -52,9 +58,12 @@ describe("useTimerEndAlert", () => {
   });
 
   it("remaining が null のとき何もしない（ref もリセットされる）", () => {
-    const { rerender } = renderHook(({ r }: { r: number | null }) => useTimerEndAlert(r), {
-      initialProps: { r: 0 },
-    });
+    const { rerender } = renderHook(
+      ({ r }: { r: number | null }) => useTimerEndAlert(r, "batch-1"),
+      {
+        initialProps: { r: 0 as number | null },
+      },
+    );
     expect(playMock).toHaveBeenCalledTimes(1);
 
     // タイマー解除

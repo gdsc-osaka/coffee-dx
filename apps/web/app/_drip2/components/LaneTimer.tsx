@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useSubmit } from "react-router";
+import { BellOff } from "lucide-react";
 import { useTimerEndAlert } from "../hooks/useTimerEndAlert";
 import { parseJst } from "../utils/parseJst";
+import { stopTimerEndSound } from "../utils/audioUnlock";
 import { formatDuration } from "../utils/formatDuration";
 
 /**
@@ -47,7 +49,7 @@ export function LaneTimer({
       : 0;
   const remaining = isRunning && targetDurationSec !== null ? targetDurationSec - elapsedSec : null;
   const isFinished = remaining !== null && remaining <= 0;
-  useTimerEndAlert(remaining);
+  useTimerEndAlert(remaining, batchId);
 
   // 終了したらドラフトを初期値に戻して再設定 UI を出しやすくする
   const finishedHandledRef = useRef(false);
@@ -63,6 +65,8 @@ export function LaneTimer({
 
   const handleStart = () => {
     if (draftSec <= 0) return;
+    // 終了状態から再 Start する場合はこのレーンのアラームを止めてから新タイマー開始
+    stopTimerEndSound(batchId);
     const fd = new FormData();
     fd.append("intent", "brew-set-timer");
     fd.append("eventId", eventId);
@@ -73,6 +77,7 @@ export function LaneTimer({
   };
 
   const handleClear = () => {
+    stopTimerEndSound(batchId);
     const fd = new FormData();
     fd.append("intent", "brew-set-timer");
     fd.append("eventId", eventId);
@@ -104,11 +109,19 @@ export function LaneTimer({
   return (
     <div className="flex flex-col items-stretch gap-3 py-4 px-3 bg-stone-50 rounded-2xl">
       {isFinished && (
-        <div className="flex flex-col items-center gap-1">
+        <div className="flex flex-col items-center gap-2">
           <span className="text-xs font-bold text-red-600">タイマー終了 (超過)</span>
           <span className="text-3xl font-black tabular-nums text-red-600">
             {formatDuration(remaining ?? 0)}
           </span>
+          <button
+            type="button"
+            onClick={() => stopTimerEndSound(batchId)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border-2 border-stone-200 text-stone-600 text-xs font-bold hover:bg-stone-50"
+          >
+            <BellOff className="w-3.5 h-3.5" aria-hidden="true" />
+            アラームを止める
+          </button>
         </div>
       )}
       <div className="flex flex-col items-center gap-1">
