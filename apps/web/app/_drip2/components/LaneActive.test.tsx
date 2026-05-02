@@ -151,7 +151,9 @@ describe("LaneActive", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    expect(await screen.findByRole("heading", { name: "抽出を取消しますか？" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "抽出を取消しますか？" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消する" })).toBeInTheDocument();
   });
 
