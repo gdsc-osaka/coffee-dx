@@ -1,8 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
-import { MenuSection } from "./components/MenuSection";
+import { ProductionDashboard } from "./components/ProductionDashboard";
+import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
+import type { LaneIdleState } from "./components/LaneIdle";
+import { SoundToggle } from "./components/SoundToggle";
+import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
+
+/** 物理ドリッパー数 = 固定レーン数。全端末で共通の表示にするため固定値で運用する */
+const LANE_COUNT = 3;
+type LaneSlot = LaneIdleState | LaneActiveDescriptor;
+const buildIdleSlot = (): LaneIdleState => ({
+  kind: "idle",
+  menuItemId: null,
+  count: 1,
+  durationSec: 0,
+});
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -36,6 +50,12 @@ type BrewUnitData = {
   menuItemName: string;
   orderItemId: string | null;
   status: "brewing" | "ready";
+  /** ドリップ係が指定したタイマー秒数。NULL はタイマー未設定。 */
+  targetDurationSec: number | null;
+  /** タイマー Start 時刻 (ISO 8601)。NULL はタイマー未開始。 */
+  timerStartedAt: string | null;
+  /** 物理ドリッパー（レーン枠）の位置 (0 始まり)。 */
+  laneIndex: number;
   businessDate: string;
   createdAt: string;
   updatedAt: string;
@@ -47,15 +67,7 @@ type ServerMessage =
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
-  | { type: "BREW_UNIT_DELETED"; brewUnitId: string }
-  | { type: "pong" };
-
-// Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）に達する前に
-// 必ず往復が発生するよう、25 秒ごとに ping を送る。
-const PING_INTERVAL_MS = 25_000;
-// ping 送信後 10 秒以内に pong が返らなければ「半開き」TCP 接続と判定し、
-// クライアント側から能動的に切断 → 再接続を走らせる。
-const PONG_TIMEOUT_MS = 10_000;
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
 
 export type BrewBatchSummary = {
   batchId: string;
@@ -75,6 +87,17 @@ export type MenuBrewSummary = {
   /** ready かつ未紐付き（余剰削除可能）な杯数 */
   surplus: number;
   batches: BrewBatchSummary[];
+};
+
+export type ProductionIndicator = {
+  menuItemId: string;
+  menuItemName: string;
+  /** 今後抽出すべき杯数: max(0, ordered - ready - brewing) */
+  shortage: number;
+  /** ストック余裕: max(0, ready + brewing - ordered) */
+  extra: number;
+  /** ready かつ未紐付き（= 余剰削除可能）な杯数 */
+  surplus: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -112,12 +135,22 @@ export async function action({ request, context }: Route.ActionArgs) {
     switch (intent) {
       case "brew-start": {
         const menuItemId = formData.get("menuItemId");
-        const count = Number(formData.get("count"));
+        const rawCount = Number(formData.get("count"));
+        // NaN / 0 / 負数 / 小数を全部弾いてから DO へ送る
+        const count = Number.isFinite(rawCount) && rawCount >= 1 ? Math.floor(rawCount) : 0;
         if (typeof menuItemId !== "string" || !menuItemId || count < 1) {
           return { ok: false, error: "入力値が不正です" };
         }
+        const rawLane = formData.get("laneIndex");
+        const parsedLane = rawLane == null ? NaN : Number(rawLane);
+        const laneIndex =
+          Number.isFinite(parsedLane) && parsedLane >= 0 ? Math.floor(parsedLane) : 0;
+        const rawDuration = formData.get("targetDurationSec");
+        const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
+        const targetDurationSec =
+          Number.isFinite(parsedDuration) && parsedDuration > 0 ? Math.floor(parsedDuration) : null;
         await callOrderDO(stub, eventId, "/do/brew-units", {
-          body: { menuItemId, count },
+          body: { menuItemId, count, laneIndex, targetDurationSec },
         });
         return { ok: true, intent };
       }
@@ -142,6 +175,23 @@ export async function action({ request, context }: Route.ActionArgs) {
           stub,
           eventId,
           `/do/brew-units/batch/${encodeURIComponent(batchId)}/cancel`,
+        );
+        return { ok: true, intent };
+      }
+      case "brew-set-timer": {
+        const batchId = formData.get("batchId");
+        if (typeof batchId !== "string" || !batchId) {
+          return { ok: false, error: "batchId が不正です" };
+        }
+        const rawDuration = formData.get("targetDurationSec");
+        const parsedDuration = rawDuration == null ? NaN : Number(rawDuration);
+        const targetDurationSec =
+          Number.isFinite(parsedDuration) && parsedDuration > 0 ? Math.floor(parsedDuration) : null;
+        await callOrderDO(
+          stub,
+          eventId,
+          `/do/brew-units/batch/${encodeURIComponent(batchId)}/timer`,
+          { body: { targetDurationSec } },
         );
         return { ok: true, intent };
       }
@@ -184,12 +234,38 @@ export default function DripHome({
 
   const [ordersById, setOrdersById] = useState<Record<string, OrderData>>({});
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
-  /** メニューごとの開始杯数入力 */
-  const [countByMenu, setCountByMenu] = useState<Record<string, number>>({});
+
+  /**
+   * 固定 LANE_COUNT 個のレーンスロット。各スロットは独立に idle / active を持つ。
+   * 抽出完了/取消後もスロット自体は消えず idle に戻る（物理ドリッパー想定）。
+   * laneIndex は DB の brew_units.lane_index で永続化されるので、全端末で
+   * 同じバッチが同じスロットに表示される。
+   */
+  const [laneSlots, setLaneSlots] = useState<LaneSlot[]>(() =>
+    Array.from({ length: LANE_COUNT }, buildIdleSlot),
+  );
 
   const [isSnapshotLoaded, setIsSnapshotLoaded] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [audioUnlocked, setAudioUnlocked] = useState<boolean>(() => isAudioUnlocked());
+
+  /** 任意のユーザー操作で AudioContext を unlock する。iOS / Android で必要。 */
+  const handleUnlockAudio = useCallback(() => {
+    ensureAudioUnlocked().then((ok) => {
+      if (ok) setAudioUnlocked(true);
+    });
+  }, []);
+
+  // 初回の pointerdown で自動アンロックを試みる（明示的なボタンの保険）
+  useEffect(() => {
+    if (audioUnlocked) return;
+    const onAnyPointer = () => {
+      handleUnlockAudio();
+    };
+    window.addEventListener("pointerdown", onAnyPointer, { once: true });
+    return () => window.removeEventListener("pointerdown", onAnyPointer);
+  }, [audioUnlocked, handleUnlockAudio]);
 
   const reconnectTimeoutRef = useRef<number | null>(null);
   const retryCountRef = useRef(0);
@@ -197,82 +273,22 @@ export default function DripHome({
   // WebSocket 接続
   useEffect(() => {
     let socket: WebSocket | null = null;
-    // 直近 connect() で作成したソケット・タイマーを一括解放するクロージャ。
-    // connect() 呼び出しごとに再代入され、reconnectImmediately() や useEffect の
-    // cleanup から呼ぶことで「古いソケットに紐づくハートビートタイマーが
-    // 新しいソケットへ ping を送る」リークを防ぐ。
-    let teardownConnection = () => {};
     let unmounted = false;
 
     const connect = () => {
       if (unmounted) return;
-      // ハートビート用タイマー。connect() の呼び出しごとに新しいソケットに紐づくため、
-      // useEffect 全体ではなく connect() スコープの local 変数として管理する。
-      let pingIntervalId: number | null = null;
-      let pongTimeoutId: number | null = null;
-      const clearHeartbeatTimers = () => {
-        if (pingIntervalId !== null) {
-          window.clearInterval(pingIntervalId);
-          pingIntervalId = null;
-        }
-        if (pongTimeoutId !== null) {
-          window.clearTimeout(pongTimeoutId);
-          pongTimeoutId = null;
-        }
-      };
-
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      // この connect() 内で常に同じソケットを参照するため const に固定する。
-      // 外側 socket は次の connect() で上書きされるが、ここのコールバックは
-      // currentSocket だけを見るので「古いタイマーが新しいソケットを操作する」事故が起きない。
-      const currentSocket = new WebSocket(
-        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
-      );
-      socket = currentSocket;
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
 
-      teardownConnection = () => {
-        clearHeartbeatTimers();
-        currentSocket.onclose = null;
-        currentSocket.onerror = null;
-        if (currentSocket.readyState !== WebSocket.CLOSED) {
-          currentSocket.close();
-        }
-        if (socket === currentSocket) socket = null;
-      };
-
-      currentSocket.onopen = () => {
+      socket.onopen = () => {
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionError(null);
-
-        pingIntervalId = window.setInterval(() => {
-          if (currentSocket.readyState !== WebSocket.OPEN) return;
-          try {
-            currentSocket.send(JSON.stringify({ type: "ping" }));
-          } catch {
-            // send 自体が失敗するソケットは確実に死んでいる。close 経由で再接続。
-            currentSocket.close();
-            return;
-          }
-          if (pongTimeoutId !== null) window.clearTimeout(pongTimeoutId);
-          pongTimeoutId = window.setTimeout(() => {
-            // pong が返ってこない = 半開き接続。能動的に閉じて onclose の再接続経路に乗せる。
-            currentSocket.close();
-          }, PONG_TIMEOUT_MS);
-        }, PING_INTERVAL_MS);
       };
 
-      currentSocket.onmessage = (event) => {
+      socket.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
-
-          if (msg.type === "pong") {
-            if (pongTimeoutId !== null) {
-              window.clearTimeout(pongTimeoutId);
-              pongTimeoutId = null;
-            }
-            return;
-          }
 
           if (msg.type === "SNAPSHOT") {
             const nextOrders: Record<string, OrderData> = {};
@@ -337,81 +353,24 @@ export default function DripHome({
         }
       };
 
-      currentSocket.onclose = () => {
-        clearHeartbeatTimers();
+      socket.onclose = () => {
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
         retryCountRef.current += 1;
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       };
 
-      currentSocket.onerror = () => {
+      socket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
-        // onerror の後に onclose が必ず続くとは限らない（特定の Service Worker 経由や
-        // モバイルキャリアの中継機器で起こり得る）。onclose に依存せず、ここでも
-        // ハートビートタイマーを明示的に停止してから close() を呼ぶ。
-        // clearHeartbeatTimers() は冪等なので onclose 側で再度呼ばれても問題ない。
-        clearHeartbeatTimers();
-        if (currentSocket.readyState !== WebSocket.CLOSED) {
-          currentSocket.close();
-        }
       };
     };
-
-    // 端末スリープからの復帰、別アプリからの戻り、bfcache 復元時に呼ばれる。
-    // 待機中のバックオフ再接続をキャンセルし、即時に新しい接続を張る。
-    const reconnectImmediately = () => {
-      if (unmounted) return;
-      if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      retryCountRef.current = 0;
-      // teardownConnection() は onclose を無効化してから close() するため、
-      // onclose 内の setIsConnected(false) は走らない。ヘッダーが「接続中」表示の
-      // まま再接続が進むのを避けるため、ここで明示的に状態を更新する。
-      setIsConnected(false);
-      // 旧ソケットのハンドラ・ハートビートタイマーを teardown でまとめて解放する。
-      // 直接 socket.onclose = null してから close() するとタイマーが残り、
-      // 新しいソケットへ ping を送ったり close() してしまう。
-      teardownConnection();
-      connect();
-    };
-
-    const checkAndReconnect = () => {
-      // CONNECTING 中に reconnectImmediately() を走らせるとタイマー多重化や二重接続を
-      // 招くため、再接続が必要なのは「ソケットが消えた / すでに CLOSED」状態のときだけ。
-      // OPEN の場合はハートビート (PING_INTERVAL_MS + PONG_TIMEOUT_MS) で死活を検出する。
-      if (!socket || socket.readyState === WebSocket.CLOSED) {
-        reconnectImmediately();
-      }
-    };
-
-    const handleVisibilityCheck = () => {
-      if (document.visibilityState !== "visible") return;
-      checkAndReconnect();
-    };
-
-    const handlePageShow = (event: PageTransitionEvent) => {
-      // pageshow は初回ロード時にも発火する。そのタイミングで socket がまだ
-      // CONNECTING の最中だと不要な reconnect を引き起こすため、bfcache から
-      // 復元された (event.persisted === true) ときだけ判定する。
-      if (!event.persisted) return;
-      checkAndReconnect();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityCheck);
-    // bfcache から復元された場合は visibilitychange が発火しないため pageshow も拾う
-    window.addEventListener("pageshow", handlePageShow);
 
     connect();
 
     return () => {
       unmounted = true;
-      document.removeEventListener("visibilitychange", handleVisibilityCheck);
-      window.removeEventListener("pageshow", handlePageShow);
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
-      teardownConnection();
+      if (socket) socket.close();
     };
   }, [eventId]);
 
@@ -487,10 +446,117 @@ export default function DripHome({
       .sort((a, b) => a.menuItemName.localeCompare(b.menuItemName));
   }, [ordersById, brewUnitsById, menus]);
 
+  const productionIndicators = useMemo((): ProductionIndicator[] => {
+    return menuSummaries.map((m) => ({
+      menuItemId: m.menuItemId,
+      menuItemName: m.menuItemName,
+      shortage: Math.max(0, m.ordered - m.ready - m.brewing),
+      extra: Math.max(0, m.ready + m.brewing - m.ordered),
+      surplus: m.surplus,
+    }));
+  }, [menuSummaries]);
+
   const isSubmitting = navigation.state === "submitting";
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
+  const submittingLaneIndex = isSubmitting ? navigation.formData?.get("laneIndex") : null;
   const submittingMenuId = isSubmitting ? navigation.formData?.get("menuItemId") : null;
+
+  // brewing バッチを「レーン候補」として派生（createdAt 昇順）。
+  // 自分のレーンスロットへの割当は別途 useEffect で行う。
+  const activeBatches = useMemo<LaneActiveDescriptor[]>(() => {
+    const allUnits = Object.values(brewUnitsById);
+    const byBatch = new Map<string, BrewUnitData[]>();
+    for (const u of allUnits) {
+      if (u.status !== "brewing") continue;
+      if (!byBatch.has(u.batchId)) byBatch.set(u.batchId, []);
+      byBatch.get(u.batchId)!.push(u);
+    }
+    return [...byBatch.entries()]
+      .map(([batchId, units]): LaneActiveDescriptor => {
+        const first = units[0];
+        return {
+          kind: "active",
+          batchId,
+          menuItemId: first.menuItemId,
+          menuItemName: first.menuItemName,
+          count: units.length,
+          createdAt: first.createdAt,
+          targetDurationSec: first.targetDurationSec,
+          timerStartedAt: first.timerStartedAt,
+          laneIndex: first.laneIndex,
+        };
+      })
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [brewUnitsById]);
+
+  // brewing バッチを laneIndex ベースでスロットへ反映する（端末間で表示位置が一致）。
+  // - active スロットの batchId が brewing でなくなったら idle に戻す（完了/取消で消えない）
+  // - brewing バッチは batch.laneIndex に対応するスロットへ反映
+  // - 同一スロットに 2 バッチが衝突した場合は createdAt 昇順で先勝ち（後勝ちで上書きしない）
+  // - laneIndex が LANE_COUNT を超えるバッチは表示しない
+  useEffect(() => {
+    setLaneSlots((prev) => {
+      const next = [...prev];
+      const batchById = new Map(activeBatches.map((b) => [b.batchId, b]));
+      let changed = false;
+
+      // active スロットの解放 / メタ追従
+      for (let i = 0; i < next.length; i++) {
+        const slot = next[i];
+        if (slot.kind !== "active") continue;
+        const batch = batchById.get(slot.batchId);
+        if (!batch || batch.laneIndex !== i) {
+          // バッチが消えた、または別レーンに移ったので解放
+          next[i] = buildIdleSlot();
+          changed = true;
+        } else if (batch !== slot) {
+          if (
+            batch.count !== slot.count ||
+            batch.menuItemName !== slot.menuItemName ||
+            batch.createdAt !== slot.createdAt ||
+            batch.targetDurationSec !== slot.targetDurationSec ||
+            batch.timerStartedAt !== slot.timerStartedAt
+          ) {
+            next[i] = batch;
+            changed = true;
+          }
+        }
+      }
+
+      // 未紐付きバッチを laneIndex のスロットへ反映
+      const occupied = new Set(
+        next.filter((s): s is LaneActiveDescriptor => s.kind === "active").map((s) => s.batchId),
+      );
+      for (const batch of activeBatches) {
+        if (occupied.has(batch.batchId)) continue;
+        const idx = batch.laneIndex;
+        if (idx < 0 || idx >= next.length) continue; // レーン範囲外のバッチは表示しない
+        if (next[idx].kind === "active") continue; // 同レーンに先客がいれば後勝ちしない
+        next[idx] = batch;
+        occupied.add(batch.batchId);
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
+  }, [activeBatches]);
+
+  const updateLaneState = useCallback((laneIndex: number, nextState: LaneIdleState) => {
+    setLaneSlots((prev) => {
+      const arr = [...prev];
+      arr[laneIndex] = nextState;
+      return arr;
+    });
+  }, []);
+
+  /**
+   * 抽出開始 submit 時のフック。laneIndex は form の hidden input で送信されるため
+   * 楽観的な切替えはしない。WS で BREW_UNITS_CREATED を受信した時点で active 化される。
+   */
+  const handleStart = useCallback((_laneIndex: number) => {
+    // no-op: 全端末で同じスロットに active 化されるよう、WS 確定主義を採用
+  }, []);
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -501,7 +567,8 @@ export default function DripHome({
             <h1 className="text-base font-bold text-stone-800 leading-tight">ドリップ係</h1>
             <p className="text-xs text-stone-400 mt-0.5">抽出管理</p>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs">
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <SoundToggle unlocked={audioUnlocked} onUnlock={handleUnlockAudio} />
             <span className="flex items-center gap-1.5 text-stone-400">
               <span
                 className={
@@ -517,29 +584,61 @@ export default function DripHome({
       </header>
 
       {/* Content */}
-      <div className="flex-1 sm:overflow-x-auto pb-10">
+      <div className="flex-1 flex flex-col pb-10">
         {!isSnapshotLoaded ? (
           <p className="px-6 py-10 text-sm text-stone-400 animate-pulse">読み込み中...</p>
         ) : (
-          <div className="flex flex-col gap-8 px-4 py-6 sm:flex-row sm:h-full sm:px-8 sm:py-10 sm:gap-12 sm:min-w-max">
-            {menuSummaries.map((menu) => (
-              <MenuSection
-                key={menu.menuItemId}
-                menu={menu}
-                eventId={eventId}
-                count={countByMenu[menu.menuItemId] ?? 1}
-                onCountChange={(n) =>
-                  setCountByMenu((prev) => ({
-                    ...prev,
-                    [menu.menuItemId]: n,
-                  }))
-                }
-                submittingBatchId={submittingBatchId as string | null}
-                submittingIntent={submittingIntent as string | null}
-                submittingMenuId={submittingMenuId as string | null}
-              />
-            ))}
-          </div>
+          <>
+            <ProductionDashboard
+              indicators={productionIndicators}
+              eventId={eventId}
+              submittingIntent={submittingIntent as string | null}
+              submittingMenuId={submittingMenuId as string | null}
+            />
+            <section aria-label="抽出レーン" className="px-4 sm:px-8 py-6 sm:py-8 overflow-x-auto">
+              <div className="flex flex-row gap-4 sm:gap-6">
+                {laneSlots.map((slot, idx) => {
+                  const laneNumber = idx + 1;
+                  const batchId = slot.kind === "active" ? slot.batchId : null;
+                  const isCompleting =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-complete";
+                  const isCancelling =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-cancel";
+                  const isSettingTimer =
+                    batchId !== null &&
+                    submittingBatchId === batchId &&
+                    submittingIntent === "brew-set-timer";
+                  // 同じメニューを選んだ idle レーンが複数あっても他レーンを巻き込まないよう、
+                  // submit 中の laneIndex と一致する場合だけ「開始中」表示にする。
+                  const isStarting =
+                    submittingIntent === "brew-start" &&
+                    slot.kind === "idle" &&
+                    submittingLaneIndex === String(idx);
+                  return (
+                    <div key={idx} className="w-[22rem] sm:w-[26rem] shrink-0">
+                      <BrewLane
+                        laneNumber={laneNumber}
+                        laneIndex={idx}
+                        state={slot}
+                        menus={menus}
+                        eventId={eventId}
+                        onChangeState={(next) => updateLaneState(idx, next)}
+                        onStart={() => handleStart(idx)}
+                        isStarting={isStarting}
+                        isCompleting={isCompleting}
+                        isCancelling={isCancelling}
+                        isSettingTimer={isSettingTimer}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          </>
         )}
 
         {actionData && !actionData.ok && (
