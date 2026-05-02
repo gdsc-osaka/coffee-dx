@@ -1,0 +1,1 @@
+ALTER TABLE `brew_units` ADD `target_duration_sec` integer;

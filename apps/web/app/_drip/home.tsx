@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, useActionData, useNavigation } from "react-router";
+import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
+import { MenuSection } from "./components/MenuSection";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -46,9 +47,17 @@ type ServerMessage =
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
   | { type: "BREW_UNIT_UPDATED"; brewUnit: BrewUnitData }
-  | { type: "BREW_UNIT_DELETED"; brewUnitId: string };
+  | { type: "BREW_UNIT_DELETED"; brewUnitId: string }
+  | { type: "pong" };
 
-type BrewBatchSummary = {
+// Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）に達する前に
+// 必ず往復が発生するよう、25 秒ごとに ping を送る。
+const PING_INTERVAL_MS = 25_000;
+// ping 送信後 10 秒以内に pong が返らなければ「半開き」TCP 接続と判定し、
+// クライアント側から能動的に切断 → 再接続を走らせる。
+const PONG_TIMEOUT_MS = 10_000;
+
+export type BrewBatchSummary = {
   batchId: string;
   count: number;
   /** order_item_id IS NOT NULL な杯数（遅延バインディングでは ready 後に設定される） */
@@ -57,7 +66,7 @@ type BrewBatchSummary = {
   createdAt: string;
 };
 
-type MenuBrewSummary = {
+export type MenuBrewSummary = {
   menuItemId: string;
   menuItemName: string;
   ordered: number;
@@ -188,22 +197,82 @@ export default function DripHome({
   // WebSocket 接続
   useEffect(() => {
     let socket: WebSocket | null = null;
+    // 直近 connect() で作成したソケット・タイマーを一括解放するクロージャ。
+    // connect() 呼び出しごとに再代入され、reconnectImmediately() や useEffect の
+    // cleanup から呼ぶことで「古いソケットに紐づくハートビートタイマーが
+    // 新しいソケットへ ping を送る」リークを防ぐ。
+    let teardownConnection = () => { };
     let unmounted = false;
 
     const connect = () => {
       if (unmounted) return;
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
+      // ハートビート用タイマー。connect() の呼び出しごとに新しいソケットに紐づくため、
+      // useEffect 全体ではなく connect() スコープの local 変数として管理する。
+      let pingIntervalId: number | null = null;
+      let pongTimeoutId: number | null = null;
+      const clearHeartbeatTimers = () => {
+        if (pingIntervalId !== null) {
+          window.clearInterval(pingIntervalId);
+          pingIntervalId = null;
+        }
+        if (pongTimeoutId !== null) {
+          window.clearTimeout(pongTimeoutId);
+          pongTimeoutId = null;
+        }
+      };
 
-      socket.onopen = () => {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      // この connect() 内で常に同じソケットを参照するため const に固定する。
+      // 外側 socket は次の connect() で上書きされるが、ここのコールバックは
+      // currentSocket だけを見るので「古いタイマーが新しいソケットを操作する」事故が起きない。
+      const currentSocket = new WebSocket(
+        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
+      );
+      socket = currentSocket;
+
+      teardownConnection = () => {
+        clearHeartbeatTimers();
+        currentSocket.onclose = null;
+        currentSocket.onerror = null;
+        if (currentSocket.readyState !== WebSocket.CLOSED) {
+          currentSocket.close();
+        }
+        if (socket === currentSocket) socket = null;
+      };
+
+      currentSocket.onopen = () => {
         retryCountRef.current = 0;
         setIsConnected(true);
         setConnectionError(null);
+
+        pingIntervalId = window.setInterval(() => {
+          if (currentSocket.readyState !== WebSocket.OPEN) return;
+          try {
+            currentSocket.send(JSON.stringify({ type: "ping" }));
+          } catch {
+            // send 自体が失敗するソケットは確実に死んでいる。close 経由で再接続。
+            currentSocket.close();
+            return;
+          }
+          if (pongTimeoutId !== null) window.clearTimeout(pongTimeoutId);
+          pongTimeoutId = window.setTimeout(() => {
+            // pong が返ってこない = 半開き接続。能動的に閉じて onclose の再接続経路に乗せる。
+            currentSocket.close();
+          }, PONG_TIMEOUT_MS);
+        }, PING_INTERVAL_MS);
       };
 
-      socket.onmessage = (event) => {
+      currentSocket.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
+
+          if (msg.type === "pong") {
+            if (pongTimeoutId !== null) {
+              window.clearTimeout(pongTimeoutId);
+              pongTimeoutId = null;
+            }
+            return;
+          }
 
           if (msg.type === "SNAPSHOT") {
             const nextOrders: Record<string, OrderData> = {};
@@ -268,24 +337,81 @@ export default function DripHome({
         }
       };
 
-      socket.onclose = () => {
+      currentSocket.onclose = () => {
+        clearHeartbeatTimers();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
         retryCountRef.current += 1;
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       };
 
-      socket.onerror = () => {
+      currentSocket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
+        // onerror の後に onclose が必ず続くとは限らない（特定の Service Worker 経由や
+        // モバイルキャリアの中継機器で起こり得る）。onclose に依存せず、ここでも
+        // ハートビートタイマーを明示的に停止してから close() を呼ぶ。
+        // clearHeartbeatTimers() は冪等なので onclose 側で再度呼ばれても問題ない。
+        clearHeartbeatTimers();
+        if (currentSocket.readyState !== WebSocket.CLOSED) {
+          currentSocket.close();
+        }
       };
     };
+
+    // 端末スリープからの復帰、別アプリからの戻り、bfcache 復元時に呼ばれる。
+    // 待機中のバックオフ再接続をキャンセルし、即時に新しい接続を張る。
+    const reconnectImmediately = () => {
+      if (unmounted) return;
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      retryCountRef.current = 0;
+      // teardownConnection() は onclose を無効化してから close() するため、
+      // onclose 内の setIsConnected(false) は走らない。ヘッダーが「接続中」表示の
+      // まま再接続が進むのを避けるため、ここで明示的に状態を更新する。
+      setIsConnected(false);
+      // 旧ソケットのハンドラ・ハートビートタイマーを teardown でまとめて解放する。
+      // 直接 socket.onclose = null してから close() するとタイマーが残り、
+      // 新しいソケットへ ping を送ったり close() してしまう。
+      teardownConnection();
+      connect();
+    };
+
+    const checkAndReconnect = () => {
+      // CONNECTING 中に reconnectImmediately() を走らせるとタイマー多重化や二重接続を
+      // 招くため、再接続が必要なのは「ソケットが消えた / すでに CLOSED」状態のときだけ。
+      // OPEN の場合はハートビート (PING_INTERVAL_MS + PONG_TIMEOUT_MS) で死活を検出する。
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        reconnectImmediately();
+      }
+    };
+
+    const handleVisibilityCheck = () => {
+      if (document.visibilityState !== "visible") return;
+      checkAndReconnect();
+    };
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      // pageshow は初回ロード時にも発火する。そのタイミングで socket がまだ
+      // CONNECTING の最中だと不要な reconnect を引き起こすため、bfcache から
+      // 復元された (event.persisted === true) ときだけ判定する。
+      if (!event.persisted) return;
+      checkAndReconnect();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityCheck);
+    // bfcache から復元された場合は visibilitychange が発火しないため pageshow も拾う
+    window.addEventListener("pageshow", handlePageShow);
 
     connect();
 
     return () => {
       unmounted = true;
+      document.removeEventListener("visibilitychange", handleVisibilityCheck);
+      window.removeEventListener("pageshow", handlePageShow);
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
-      if (socket) socket.close();
+      teardownConnection();
     };
   }, [eventId]);
 
@@ -507,11 +633,10 @@ function MenuSection({
                   key={num}
                   type="button"
                   onClick={() => onCountChange(num)}
-                  className={`w-20 h-20 text-4xl font-black rounded-2xl transition-colors shadow-sm border-4 ${
-                    isActive
+                  className={`w-20 h-20 text-4xl font-black rounded-2xl transition-colors shadow-sm border-4 ${isActive
                       ? "bg-amber-100 border-amber-500 text-amber-700"
                       : "bg-white border-stone-200 text-stone-500 hover:bg-stone-50 active:bg-stone-100"
-                  }`}
+                    }`}
                 >
                   {num}
                 </button>
