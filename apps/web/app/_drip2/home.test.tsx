@@ -183,7 +183,7 @@ describe("DripHome", () => {
     });
 
     expect(
-      within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
+      within(lanesSection).getByRole("button", { name: "取消" }),
     ).toBeInTheDocument();
     // 固定 3 レーン枠が常に表示される
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
@@ -245,7 +245,7 @@ describe("DripHome", () => {
         within(lanesSection).queryByRole("button", { name: /スワイプで完了/ }),
       ).not.toBeInTheDocument();
       expect(
-        within(lanesSection).queryByRole("button", { name: /取消 \(1秒長押し\)/ }),
+        within(lanesSection).queryByRole("button", { name: "取消" }),
       ).not.toBeInTheDocument();
     });
     // レーン枠は固定 3 個で常時表示される（レーン 1〜3 の見出し）
@@ -322,7 +322,7 @@ describe("DripHome", () => {
       within(lanesSection).getByRole("button", { name: /スワイプで完了/ }),
     ).toBeInTheDocument();
     expect(
-      within(lanesSection).getByRole("button", { name: /取消 \(1秒長押し\)/ }),
+      within(lanesSection).getByRole("button", { name: "取消" }),
     ).toBeInTheDocument();
   });
 

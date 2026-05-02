@@ -129,7 +129,7 @@ describe("LaneActive", () => {
   it("タイマー未設定でも完了 / 取消 ボタンは表示される", () => {
     render(<LaneActive {...baseProps} targetDurationSec={null} timerStartedAt={null} />);
     expect(screen.getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /取消 \(1秒長押し\)/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument();
   });
 
   it("LaneTimer の +1分 → タイマー開始で useSubmit が brew-set-timer を 60s で送信", () => {
@@ -143,33 +143,25 @@ describe("LaneActive", () => {
     expect(fd.get("targetDurationSec")).toBe("60");
   });
 
-  it("取消ボタンを長押しすると確認 Dialog が開く", () => {
+  it("取消ボタンをタップすると確認 Dialog が開く", async () => {
     render(
       <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
     );
     expect(screen.queryByRole("button", { name: "取消する" })).not.toBeInTheDocument();
 
-    const cancelBtn = screen.getByRole("button", { name: /取消/ });
-    dispatchPointer(cancelBtn, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    expect(screen.getByRole("heading", { name: "抽出を取消しますか？" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "抽出を取消しますか？" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "取消する" })).toBeInTheDocument();
   });
 
-  it("Dialog の「取消する」を押すと useSubmit が brew-cancel で呼ばれる", () => {
+  it("Dialog の「取消する」を押すと useSubmit が brew-cancel で呼ばれる", async () => {
     render(
       <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
     );
-    const cancelBtn = screen.getByRole("button", { name: /取消/ });
-    dispatchPointer(cancelBtn, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "取消する" }));
+    fireEvent.click(await screen.findByRole("button", { name: "取消する" }));
     expect(submitFn).toHaveBeenCalledTimes(1);
     const [fd] = submitFn.mock.calls[0];
     expect(fd.get("intent")).toBe("brew-cancel");
@@ -177,17 +169,13 @@ describe("LaneActive", () => {
     expect(fd.get("batchId")).toBe("batch-1");
   });
 
-  it("Dialog の「いいえ」で閉じても submit はされない", () => {
+  it("Dialog の「いいえ」で閉じても submit はされない", async () => {
     render(
       <LaneActive {...baseProps} targetDurationSec={60} timerStartedAt="2026-04-18 12:00:00" />,
     );
-    const cancelBtn = screen.getByRole("button", { name: /取消/ });
-    dispatchPointer(cancelBtn, "pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
-    act(() => {
-      vi.advanceTimersByTime(1000);
-    });
+    fireEvent.click(screen.getByRole("button", { name: "取消" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "いいえ" }));
+    fireEvent.click(await screen.findByRole("button", { name: "いいえ" }));
     expect(submitFn).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "取消する" })).not.toBeInTheDocument();
   });
