@@ -366,6 +366,10 @@ export default function DripHome({
         reconnectTimeoutRef.current = null;
       }
       retryCountRef.current = 0;
+      // teardownConnection() は onclose を無効化してから close() するため、
+      // onclose 内の setIsConnected(false) は走らない。ヘッダーが「接続中」表示の
+      // まま再接続が進むのを避けるため、ここで明示的に状態を更新する。
+      setIsConnected(false);
       // 旧ソケットのハンドラ・ハートビートタイマーを teardown でまとめて解放する。
       // 直接 socket.onclose = null してから close() するとタイマーが残り、
       // 新しいソケットへ ping を送ったり close() してしまう。
