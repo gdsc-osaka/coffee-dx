@@ -91,11 +91,19 @@ describe("OrderDO", () => {
     id: string,
     orderNumber: number,
     status: "pending" | "brewing" | "ready" | "completed" | "cancelled",
+    overrides?: { businessDate?: string },
   ) => {
     const now = isoNow();
-    return db
-      .insert(orders)
-      .values([{ id, businessDate: eventId, orderNumber, status, createdAt: now, updatedAt: now }]);
+    return db.insert(orders).values([
+      {
+        id,
+        businessDate: overrides?.businessDate ?? eventId,
+        orderNumber,
+        status,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
   };
 
   const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
@@ -150,6 +158,25 @@ describe("OrderDO", () => {
     // 別 event のユニットは弾かれる
     expect(snap.brewUnits).toHaveLength(1);
     expect(snap.brewUnits[0].id).toBe("u-mine");
+  });
+
+  it("別 business_date の未完了注文は SNAPSHOT に含まれない（DX-49 回帰防止）", async () => {
+    await insertMenu("m1", "coffee");
+    // 当日の注文
+    await insertOrder("o-today", 1, "pending");
+    await insertOrderItem("i-today", "o-today", "m1", 1);
+    // 過去日 (= 別 event) のやり残し ready 注文
+    await insertOrder("o-past", 246, "ready", { businessDate: `event-${crypto.randomUUID()}` });
+    await insertOrderItem("i-past", "o-past", "m1", 1);
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    const snap = await queue.next();
+
+    expect(snap.type).toBe("SNAPSHOT");
+    expect(snap.orders).toHaveLength(1);
+    expect(snap.orders[0].id).toBe("o-today");
   });
 
   // ---------------------------------------------------------------------------
