@@ -162,10 +162,18 @@ export class OrderDurableObject implements DurableObject {
         const db = createDb(this.env.DB);
 
         // --- orders ---
+        // brew_units 側と同様に business_date でも絞る。これが無いと別 event の
+        // pending/brewing/ready 注文を取り込み、当日に紐付き brew_unit が無いまま
+        // 「未着手なのに ready」表示になる事故を起こす（DX-49）。
         const activeOrders = await db
           .select()
           .from(orders)
-          .where(inArray(orders.status, ["pending", "brewing", "ready"]));
+          .where(
+            and(
+              inArray(orders.status, ["pending", "brewing", "ready"]),
+              eq(orders.businessDate, eventId),
+            ),
+          );
 
         const allItems =
           activeOrders.length > 0

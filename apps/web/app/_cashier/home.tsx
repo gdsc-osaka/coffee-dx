@@ -3,6 +3,7 @@ import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
+import { LeftoverOrdersBanner } from "./components/LeftoverOrdersBanner";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
 
@@ -477,6 +478,9 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
           </div>
         </div>
       </header>
+
+      {/* 過去日のやり残し注文バナー (件数 > 0 のときだけ表示) */}
+      <LeftoverOrdersBanner />
 
       {/* Content */}
       <div className="flex-1 py-5 space-y-6">

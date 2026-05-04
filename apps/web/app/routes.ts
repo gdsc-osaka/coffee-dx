@@ -16,12 +16,14 @@ export default [
   layout("_drip2.tsx", [...prefix("drip2", [index("_drip2/home.tsx")])]),
 
   // 会計係画面（loaderで認証ガード）
-  // orders-history は会計係向けのデータ取得 API。CashierHeader の履歴ダイアログから fetch されるが、
+  // orders-history / leftover-orders は会計係向けのデータ取得 API。
+  // それぞれ CashierHeader の履歴ダイアログ・/cashier の警告バナーから fetch される。
   // ルート定義上は _cashier レイアウト配下に置いて auth ガードの対象に含める。
   layout("_cashier.tsx", [
     ...prefix("cashier", [
       index("_cashier/home.tsx"),
       route("orders-history", "_cashier/orders-history.tsx"),
+      route("leftover-orders", "_cashier/leftover-orders.tsx"),
     ]),
   ]),
 ] satisfies RouteConfig;

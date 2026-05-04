@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { menuItems, orderItems, orderNumberCounters, orders } from "../../../db/schema";
 import { createDb } from "../../lib/db";
-import { getRecentOrders } from "./history-queries";
+import { getLeftoverOrders, getRecentOrders } from "./history-queries";
 
 type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
@@ -200,5 +200,101 @@ describe("getRecentOrders", () => {
     const byId = new Map(result.orders.map((o) => [o.id, o]));
     expect(byId.get("o-free")?.isFree).toBe(true);
     expect(byId.get("o-paid")?.isFree).toBe(false);
+  });
+});
+
+describe("getLeftoverOrders", () => {
+  let db: ReturnType<typeof drizzle<Record<string, never>>>;
+  let d1Db: ReturnType<typeof createDb>;
+
+  beforeEach(async () => {
+    db = drizzle(env.DB);
+    d1Db = createDb(env.DB);
+    await db.delete(orderItems);
+    await db.delete(orders);
+    await db.delete(orderNumberCounters);
+    await db.delete(menuItems);
+
+    await db
+      .insert(menuItems)
+      .values([{ id: "menu-1", name: "ブレンドコーヒー", price: 400, isAvailable: 1 }]);
+  });
+
+  it("過去日 (business_date < today) かつ未完了の注文だけを返す", async () => {
+    // 過去日 × 未完了 (返る)
+    await seedOrder(db, {
+      id: "o-past-pending",
+      orderNumber: 1,
+      createdAt: "2026-05-02 10:00:00",
+      status: "pending",
+      items: [{ id: "i-1", menuItemId: "menu-1", quantity: 2 }],
+    });
+    await seedOrder(db, {
+      id: "o-past-ready",
+      orderNumber: 2,
+      createdAt: "2026-05-03 11:00:00",
+      status: "ready",
+      items: [{ id: "i-2", menuItemId: "menu-1", quantity: 1 }],
+    });
+    // 過去日 × 完了 (返らない)
+    await seedOrder(db, {
+      id: "o-past-completed",
+      orderNumber: 3,
+      createdAt: "2026-05-02 12:00:00",
+      status: "completed",
+    });
+    // 当日 × 未完了 (返らない: business_date == today なので lt で弾かれる)
+    await seedOrder(db, {
+      id: "o-today",
+      orderNumber: 4,
+      createdAt: "2026-05-04 09:00:00",
+      status: "pending",
+    });
+
+    const result = await getLeftoverOrders(d1Db, "2026-05-04");
+
+    expect(result.map((o) => o.id)).toEqual(["o-past-pending", "o-past-ready"]);
+    expect(result[0]).toMatchObject({
+      orderNumber: 1,
+      status: "pending",
+      businessDate: "2026-05-02",
+    });
+    expect(result[0].items).toHaveLength(1);
+    expect(result[0].items[0]).toMatchObject({ name: "ブレンドコーヒー", quantity: 2 });
+  });
+
+  it("やり残しが無いとき空配列を返す", async () => {
+    await seedOrder(db, {
+      id: "o-completed",
+      orderNumber: 1,
+      createdAt: "2026-05-03 10:00:00",
+      status: "completed",
+    });
+    const result = await getLeftoverOrders(d1Db, "2026-05-04");
+    expect(result).toHaveLength(0);
+  });
+
+  it("business_date 昇順 → orderNumber 昇順で並ぶ（古い日から確認できる）", async () => {
+    await seedOrder(db, {
+      id: "o-d2",
+      orderNumber: 5,
+      createdAt: "2026-05-03 09:00:00",
+      status: "pending",
+    });
+    await seedOrder(db, {
+      id: "o-d1-2",
+      orderNumber: 246,
+      createdAt: "2026-05-02 17:00:00",
+      status: "ready",
+    });
+    await seedOrder(db, {
+      id: "o-d1-1",
+      orderNumber: 100,
+      createdAt: "2026-05-02 09:00:00",
+      status: "brewing",
+    });
+
+    const result = await getLeftoverOrders(d1Db, "2026-05-04");
+    expect(result.map((o) => o.id)).toEqual(["o-d1-1", "o-d1-2", "o-d2"]);
   });
 });
