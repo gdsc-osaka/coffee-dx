@@ -21,6 +21,14 @@ export type HistoryOrder = {
   items: HistoryOrderItem[];
 };
 
+/**
+ * 過去日のやり残し注文。businessDate を含む点が HistoryOrder と異なる
+ * （UI から過去日 DO のスタブを呼ぶために必要）。
+ */
+export type LeftoverOrder = HistoryOrder & {
+  businessDate: string;
+};
+
 export type RecentOrdersPage = {
   orders: HistoryOrder[];
   /** 次ページがあれば、その次ページ取得に使う cursor。なければ null。 */
@@ -106,4 +114,60 @@ export async function getRecentOrders(
   const nextCursor = hasMore ? { createdAt: last.createdAt, id: last.id } : null;
 
   return { orders: result, nextCursor };
+}
+
+/**
+ * 過去日 (business_date < today) かつ未完了 (pending/brewing/ready) の注文を返す。
+ * 営業終了時に「完了」「キャンセル」の処理をし忘れた注文を翌営業日以降に拾うための導線。
+ * 件数は通常 0〜数件想定なのでページングは省く。
+ */
+export async function getLeftoverOrders(db: Db, today: string): Promise<LeftoverOrder[]> {
+  const rows = await db
+    .select()
+    .from(orders)
+    .where(
+      and(lt(orders.businessDate, today), inArray(orders.status, ["pending", "brewing", "ready"])),
+    )
+    .orderBy(asc(orders.businessDate), asc(orders.orderNumber));
+
+  if (rows.length === 0) return [];
+
+  const orderIds = rows.map((o) => o.id);
+  const items = await db
+    .select()
+    .from(orderItems)
+    .where(inArray(orderItems.orderId, orderIds))
+    .orderBy(asc(orderItems.createdAt), asc(orderItems.id));
+
+  const menuIds = [...new Set(items.map((i) => i.menuItemId))];
+  const menus =
+    menuIds.length > 0
+      ? await db
+          .select({ id: menuItems.id, name: menuItems.name })
+          .from(menuItems)
+          .where(inArray(menuItems.id, menuIds))
+      : [];
+  const menuNameById = new Map(menus.map((m) => [m.id, m.name]));
+
+  const itemsByOrderId = new Map<string, HistoryOrderItem[]>();
+  for (const it of items) {
+    const list = itemsByOrderId.get(it.orderId) ?? [];
+    list.push({
+      id: it.id,
+      menuItemId: it.menuItemId,
+      name: menuNameById.get(it.menuItemId) ?? "(削除済み)",
+      quantity: it.quantity,
+    });
+    itemsByOrderId.set(it.orderId, list);
+  }
+
+  return rows.map((o) => ({
+    id: o.id,
+    orderNumber: o.orderNumber,
+    status: o.status as HistoryOrder["status"],
+    isFree: o.isFree === 1,
+    createdAt: parseJstString(o.createdAt),
+    businessDate: o.businessDate,
+    items: itemsByOrderId.get(o.id) ?? [],
+  }));
 }
