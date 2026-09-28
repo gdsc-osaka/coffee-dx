@@ -1,6 +1,17 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { brewUnits, menuItems, orderItems, orders } from "../../db/schema";
+import {
+  consumeQueue,
+  refillQueue,
+  trimQueueAfterOrderCancel,
+  type QueueEntry,
+  type QueueMenus,
+} from "../features/brew-queue/queue";
 import { createDb } from "../lib/db";
+
+/** 次枠キューと A・B を保存する DO storage のキー（DO は業務日ごとなので日付は含めない） */
+const QUEUE_STORAGE_KEY = "brewQueue";
+const QUEUE_MENUS_STORAGE_KEY = "brewQueueMenus";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
 
@@ -42,7 +53,8 @@ type BrewUnitData = {
 };
 
 type ServerMessage =
-  | { type: "SNAPSHOT"; orders: OrderData[]; brewUnits: BrewUnitData[] }
+  | { type: "SNAPSHOT"; orders: OrderData[]; brewUnits: BrewUnitData[]; queue: QueueEntry[] }
+  | { type: "QUEUE_UPDATED"; queue: QueueEntry[] }
   | { type: "ORDER_CREATED"; order: OrderData }
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
@@ -65,6 +77,10 @@ export class OrderDurableObject implements DurableObject {
   private readonly orders = new Map<string, OrderData>();
   private readonly brewUnits = new Map<string, BrewUnitData>();
   private readonly sessions = new Set<WebSocket>();
+  /** 次枠キュー（docs/design/drip-suggestion.md）。全端末で同じ内容を表示する */
+  private queue: QueueEntry[] = [];
+  /** A・B。一度決めたら営業中は変えない。メニュー未登録の間は null */
+  private queueMenus: QueueMenus | null = null;
   private initialized = false;
   // この DO が紐づく eventId（= business_date）。Worker 境界で検証済みの値が x-event-id に乗ってくる前提で、
   // brew_units を書き込む際の真実源として使う。
@@ -254,6 +270,10 @@ export class OrderDurableObject implements DurableObject {
           });
         }
 
+        // --- 次枠キュー ---
+        this.queue = (await this.state.storage.get<QueueEntry[]>(QUEUE_STORAGE_KEY)) ?? [];
+        await this.ensureQueueMenus();
+
         this.initialized = true;
       });
     }
@@ -281,7 +301,8 @@ export class OrderDurableObject implements DurableObject {
         type: "SNAPSHOT",
         orders: snapshotOrders,
         brewUnits: snapshotBrewUnits,
-      }),
+        queue: this.queue,
+      } satisfies ServerMessage),
     );
 
     server.addEventListener("close", () => this.sessions.delete(server));
@@ -319,6 +340,8 @@ export class OrderDurableObject implements DurableObject {
 
       // 既存の ready・未紐付けユニットがあれば自動割り当て
       await this.autoAssignReadyUnits(order);
+
+      await this.refillBrewQueue();
     });
   }
 
@@ -446,6 +469,9 @@ export class OrderDurableObject implements DurableObject {
 
     for (const u of newUnits) this.brewUnits.set(u.id, u);
     this.broadcast({ type: "BREW_UNITS_CREATED", brewUnits: newUnits });
+
+    // 次枠キュー: 開始した内容に対応するエントリーを消費してから補充する
+    await this.refillBrewQueue((queue) => consumeQueue(queue, { menuItemId, count }));
 
     return new Response(null, { status: 204 });
   }
@@ -609,6 +635,9 @@ export class OrderDurableObject implements DurableObject {
         this.brewUnits.delete(u.id);
         this.broadcast({ type: "BREW_UNIT_DELETED", brewUnitId: u.id });
       }
+
+      // 取り消した杯は未対応に戻るので補充する
+      await this.refillBrewQueue();
 
       return new Response(null, { status: 200 });
     });
@@ -778,6 +807,18 @@ export class OrderDurableObject implements DurableObject {
       }
     }
 
+    // 次枠キュー: 注文の取消で余った対応予定を減らしてから補充する
+    if (targetStatus === "cancelled") {
+      await this.refillBrewQueue((queue, menus) =>
+        trimQueueAfterOrderCancel(
+          queue,
+          [...this.orders.values()],
+          [...this.brewUnits.values()],
+          menus,
+        ),
+      );
+    }
+
     return new Response(null, { status: 200 });
   }
 
@@ -799,6 +840,61 @@ export class OrderDurableObject implements DurableObject {
       }
     }
     throw new Error("Unreachable");
+  }
+
+  // ---------------------------------------------------------------------------
+  // 次枠キュー
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A・B を決める。保存済みならそれを使い、なければ提供中のメニューを
+   * 登録日時順（同時刻なら id 順）で取得して保存する。一度決まったら営業中は変えない。
+   */
+  private async ensureQueueMenus(): Promise<void> {
+    if (this.queueMenus) return;
+
+    const stored = await this.state.storage.get<QueueMenus>(QUEUE_MENUS_STORAGE_KEY);
+    if (stored) {
+      this.queueMenus = stored;
+      return;
+    }
+
+    const db = createDb(this.env.DB);
+    const menus = await db
+      .select({ id: menuItems.id })
+      .from(menuItems)
+      .where(eq(menuItems.isAvailable, 1))
+      .orderBy(asc(menuItems.createdAt), asc(menuItems.id))
+      .limit(2);
+    if (menus.length === 0) return;
+
+    this.queueMenus = { a: menus[0].id, b: menus[1]?.id ?? null };
+    await this.state.storage.put(QUEUE_MENUS_STORAGE_KEY, this.queueMenus);
+  }
+
+  /**
+   * 補充して保存・送信する。before を渡すと、先にキューへ適用（消費・削減）してから補充する。
+   * this.queue を読んでから代入するまでの間に await を挟まないこと（同時操作での取りこぼし防止）。
+   */
+  private async refillBrewQueue(
+    before: (queue: QueueEntry[], menus: QueueMenus) => QueueEntry[] = (queue) => queue,
+  ): Promise<void> {
+    await this.ensureQueueMenus();
+    const menus = this.queueMenus;
+    if (!menus) return;
+
+    const next = refillQueue({
+      queue: before(this.queue, menus),
+      orders: [...this.orders.values()],
+      brewUnits: [...this.brewUnits.values()],
+      menus,
+      now: Date.now(),
+    });
+
+    if (JSON.stringify(next) === JSON.stringify(this.queue)) return;
+    this.queue = next;
+    this.broadcast({ type: "QUEUE_UPDATED", queue: next });
+    await this.state.storage.put(QUEUE_STORAGE_KEY, next);
   }
 
   private broadcast(message: ServerMessage): void {

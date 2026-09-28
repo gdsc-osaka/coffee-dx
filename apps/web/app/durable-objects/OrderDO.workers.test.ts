@@ -674,4 +674,86 @@ describe("OrderDO", () => {
       expect(unitDelete?.brewUnitId).toBe("u1");
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // 次枠キュー（docs/design/drip-suggestion.md）
+  // ---------------------------------------------------------------------------
+
+  describe("次枠キュー", () => {
+    const postNewOrder = (orderId: string, itemId: string, quantity: number) => {
+      const now = isoNow();
+      return stub.fetch(
+        new Request("http://localhost/do/new-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-event-id": eventId },
+          body: JSON.stringify({
+            id: orderId,
+            orderNumber: 101,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now,
+            items: [
+              { id: itemId, orderId, menuItemId: "m1", quantity, createdAt: now, updatedAt: now },
+            ],
+          }),
+        }),
+      );
+    };
+
+    it("SNAPSHOT にキューを含め、新しい注文で補充し、抽出開始で消費する", async () => {
+      await insertMenu("m1", "coffee");
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      const snap = await queue.next();
+      expect(snap.queue).toEqual([]);
+
+      expect((await postNewOrder("o1", "i1", 2)).status).toBe(204);
+      const [created, refilled] = await queue.take(2);
+      expect(created.type).toBe("ORDER_CREATED");
+      expect(refilled.type).toBe("QUEUE_UPDATED");
+      expect(refilled.queue).toHaveLength(1);
+      expect(refilled.queue[0]).toMatchObject({ menuItemId: "m1", count: 2 });
+
+      await stub.fetch(
+        new Request("http://localhost/do/brew-units", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-event-id": eventId },
+          body: JSON.stringify({ menuItemId: "m1", count: 2 }),
+        }),
+      );
+      const [brewCreated, consumed] = await queue.take(2);
+      expect(brewCreated.type).toBe("BREW_UNITS_CREATED");
+      expect(consumed.type).toBe("QUEUE_UPDATED");
+      expect(consumed.queue).toEqual([]);
+    });
+
+    it("注文の取消で余った対応予定を減らす", async () => {
+      await insertMenu("m1", "coffee");
+      await insertOrder("o1", 101, "pending");
+      await insertOrderItem("i1", "o1", "m1", 3);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      await postNewOrder("o1", "i1", 3);
+      const [, refilled] = await queue.take(2); // ORDER_CREATED, QUEUE_UPDATED
+      expect(refilled.queue[0]).toMatchObject({ menuItemId: "m1", count: 3 });
+
+      const res = await stub.fetch(
+        new Request("http://localhost/do/orders/o1/cancel", {
+          method: "POST",
+          headers: { "x-event-id": eventId },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const [orderUpdate, trimmed] = await queue.take(2);
+      expect(orderUpdate.type).toBe("ORDER_UPDATED");
+      expect(trimmed.type).toBe("QUEUE_UPDATED");
+      expect(trimmed.queue).toEqual([]);
+    });
+  });
 });
