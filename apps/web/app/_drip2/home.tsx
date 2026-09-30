@@ -7,6 +7,10 @@ import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState } from "./components/LaneIdle";
 import { SoundToggle } from "./components/SoundToggle";
 import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
+import { BrewSuggestion } from "./components/BrewSuggestion";
+import { ReadyOrders } from "./components/ReadyOrders";
+import { getReadyOrders } from "./utils/readyOrders";
+import type { QueueEntry } from "~/features/brew-queue/queue";
 
 /** 物理ドリッパー数 = 固定レーン数。全端末で共通の表示にするため固定値で運用する */
 const LANE_COUNT = 3;
@@ -62,7 +66,8 @@ type BrewUnitData = {
 };
 
 type ServerMessage =
-  | { type: "SNAPSHOT"; orders: OrderData[]; brewUnits: BrewUnitData[] }
+  | { type: "SNAPSHOT"; orders: OrderData[]; brewUnits: BrewUnitData[]; queue?: QueueEntry[] }
+  | { type: "QUEUE_UPDATED"; queue: QueueEntry[] }
   | { type: "ORDER_CREATED"; order: OrderData }
   | { type: "ORDER_UPDATED"; orderId: string; status: OrderStatus }
   | { type: "BREW_UNITS_CREATED"; brewUnits: BrewUnitData[] }
@@ -208,6 +213,37 @@ export async function action({ request, context }: Route.ActionArgs) {
         );
         return { ok: true, intent };
       }
+      case "order-close":
+      case "order-cancel": {
+        // 「提供待ち」の完了 / 注文キャンセル（会計係画面と同じ DO エンドポイント）
+        const orderId = formData.get("orderId");
+        if (typeof orderId !== "string" || !orderId) {
+          return { ok: false, error: "orderId が不正です" };
+        }
+        const isCancel = intent === "order-cancel";
+        try {
+          await callOrderDO(
+            stub,
+            eventId,
+            `/do/orders/${encodeURIComponent(orderId)}/${isCancel ? "cancel" : "close"}`,
+          );
+        } catch (e) {
+          const isConflict = e instanceof Error && e.message.includes("DO error 409");
+          if (isCancel) {
+            return {
+              ok: false,
+              error: isConflict
+                ? "提供済みの注文はキャンセルできません。"
+                : "キャンセルに失敗しました。少し待って再度お試しください。",
+            };
+          }
+          return {
+            ok: false,
+            error: "提供済みの更新に失敗しました。少し待って再度お試しください。",
+          };
+        }
+        return { ok: true, intent };
+      }
       default:
         return { ok: false, error: "intent が不正です" };
     }
@@ -234,6 +270,8 @@ export default function DripHome({
 
   const [ordersById, setOrdersById] = useState<Record<string, OrderData>>({});
   const [brewUnitsById, setBrewUnitsById] = useState<Record<string, BrewUnitData>>({});
+  /** 次枠キュー（抽出の提案）。OrderDO が計算した内容をそのまま表示する */
+  const [queue, setQueue] = useState<QueueEntry[]>([]);
 
   /**
    * 固定 LANE_COUNT 個のレーンスロット。各スロットは独立に idle / active を持つ。
@@ -299,7 +337,14 @@ export default function DripHome({
             for (const u of msg.brewUnits) nextUnits[u.id] = u;
             setBrewUnitsById(nextUnits);
 
+            setQueue(msg.queue ?? []);
+
             setIsSnapshotLoaded(true);
+            return;
+          }
+
+          if (msg.type === "QUEUE_UPDATED") {
+            setQueue(msg.queue);
             return;
           }
 
@@ -456,7 +501,26 @@ export default function DripHome({
     }));
   }, [menuSummaries]);
 
+  // 「提供待ち」の注文（全端末で同じ WS データから計算するので、ドリップ係全員が同じ一覧を見る）
+  const readyOrders = useMemo(
+    () => getReadyOrders(Object.values(ordersById), Object.values(brewUnitsById)),
+    [ordersById, brewUnitsById],
+  );
+
+  // 抽出の提案に出すメニュー名: menus → 抽出記録 → 注文品目 の順で探す
+  const menuNameOf = useCallback(
+    (menuItemId: string) =>
+      menus.find((m) => m.id === menuItemId)?.name ??
+      Object.values(brewUnitsById).find((u) => u.menuItemId === menuItemId)?.menuItemName ??
+      Object.values(ordersById)
+        .flatMap((o) => o.items)
+        .find((i) => i.menuItemId === menuItemId)?.name ??
+      menuItemId,
+    [menus, brewUnitsById, ordersById],
+  );
+
   const isSubmitting = navigation.state === "submitting";
+  const submittingOrderId = isSubmitting ? navigation.formData?.get("orderId") : null;
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
   const submittingIntent = isSubmitting ? navigation.formData?.get("intent") : null;
   const submittingLaneIndex = isSubmitting ? navigation.formData?.get("laneIndex") : null;
@@ -638,6 +702,13 @@ export default function DripHome({
                 })}
               </div>
             </section>
+            <BrewSuggestion queue={queue} menuNameOf={menuNameOf} />
+            <ReadyOrders
+              orders={readyOrders}
+              eventId={eventId}
+              submittingOrderId={submittingOrderId as string | null}
+              submittingIntent={submittingIntent as string | null}
+            />
           </>
         )}
 
