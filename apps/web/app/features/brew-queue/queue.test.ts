@@ -12,7 +12,8 @@ import {
 
 const A = "menu-a";
 const B = "menu-b";
-const menus = { a: A, b: B };
+const C = "menu-c";
+const menus = [A, B];
 const NOW = parseJstString("2026-09-27 10:30:00").getTime();
 
 let seq = 0;
@@ -45,7 +46,12 @@ function entry(id: string, menuItemId: string, count: number): QueueEntry {
 
 /** キューを "A3 B1" のような文字列にする */
 function show(queue: QueueEntry[]): string {
-  return queue.map((e) => `${e.menuItemId === A ? "A" : "B"}${e.count}`).join(" ");
+  const labels = new Map([
+    [A, "A"],
+    [B, "B"],
+    [C, "C"],
+  ]);
+  return queue.map((e) => `${labels.get(e.menuItemId) ?? e.menuItemId}${e.count}`).join(" ");
 }
 
 function refill(orders: QueueOrder[], queue: QueueEntry[] = [], brewUnits: QueueBrewUnit[] = []) {
@@ -71,7 +77,7 @@ describe("computePendingOrders", () => {
     expect(result.map((p) => [p.order.id, p.pending.get(A)])).toEqual([[o2.id, 1]]);
   });
 
-  it("紐付き済みの完成品を差し引き、完了・取消済みの注文と A・B 以外のメニューは数えない", () => {
+  it("紐付き済みの完成品を差し引き、完了・取消済みの注文と対象外メニューは数えない", () => {
     const o1 = order("10:20:00", [2, 0]);
     const done = { ...order("10:21:00", [1, 0]), status: "completed" };
     const other = {
@@ -87,6 +93,48 @@ describe("computePendingOrders", () => {
 });
 
 describe("refillQueue: 通常時の決め方", () => {
+  it("1 種類だけの日にも補充できる", () => {
+    const result = refillQueue({
+      queue: [],
+      orders: [order("10:28:00", [2, 0])],
+      brewUnits: [],
+      menus: [A],
+      now: NOW,
+      newId: () => "new",
+    });
+    expect(show(result)).toBe("A2");
+  });
+
+  it("3 種類の日は 3 種類すべてを判定対象にする", () => {
+    const oldest = order("10:26:00", [0, 0]);
+    oldest.items = [{ id: "item-c", menuItemId: C, quantity: 2 }];
+    const result = refillQueue({
+      queue: [],
+      orders: [oldest, order("10:27:00", [2, 0]), order("10:28:00", [0, 2])],
+      brewUnits: [],
+      menus: [A, B, C],
+      now: NOW,
+      newId: () => `new-${++seq}`,
+    });
+    expect(show(result)).toBe("C2 A2 B2");
+  });
+
+  it("同率候補を全体の最古注文が含まない場合、候補を含む最古注文を優先する", () => {
+    const fillers = [order("10:00:00", [3, 0]), order("10:00:01", [3, 0])];
+    const oldest = order("10:26:00", [0, 0]);
+    oldest.items = [{ id: "item-c", menuItemId: C, quantity: 1 }];
+    const result = refillQueue({
+      queue: [entry("x", A, 3), entry("y", A, 3)],
+      orders: [...fillers, oldest, order("10:27:00", [0, 2]), order("10:28:00", [2, 0])],
+      brewUnits: [],
+      menus: [A, B, C],
+      now: NOW,
+      newId: () => `new-${++seq}`,
+    });
+    // A・B が 2 杯で同率。登録順の A ではなく、先に注文された B を選ぶ。
+    expect(show(result.slice(2))).toBe("B2");
+  });
+
   it("古い 3 注文の中で杯数が多い種類を選ぶ（B1, A2, A1 → A3）", () => {
     expect(
       show(

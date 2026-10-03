@@ -21,8 +21,8 @@ export const OLD_ORDER_COUNT = 3;
 /** 平均抽出時間（3 分弱）の約 2 倍。最も古い注文がこれ以上待っていれば優先する */
 export const PRIORITY_WAIT_MS = 5 * 60 * 1000;
 
-/** A = 1 種類目、B = 2 種類目のメニュー ID */
-export type QueueMenus = { a: string; b: string | null };
+/** 営業開始時点の対象メニュー ID（登録順）。同点時の最終決定順にも使う。 */
+export type QueueMenus = string[];
 
 export type QueueEntry = { id: string; menuItemId: string; count: number };
 
@@ -48,12 +48,23 @@ function compareOrders(a: QueueOrder, b: QueueOrder): number {
   return a.createdAt.localeCompare(b.createdAt) || a.orderNumber - b.orderNumber;
 }
 
-function pendingOf(p: PendingOrder, menuItemId: string | null): number {
-  return menuItemId === null ? 0 : (p.pending.get(menuItemId) ?? 0);
+function pendingOf(p: PendingOrder, menuItemId: string): number {
+  return p.pending.get(menuItemId) ?? 0;
 }
 
-function totalPending(pendingOrders: PendingOrder[], menuItemId: string | null): number {
+function totalPending(pendingOrders: PendingOrder[], menuItemId: string): number {
   return pendingOrders.reduce((sum, p) => sum + pendingOf(p, menuItemId), 0);
+}
+
+/** 候補を評価値の降順、同点なら menus の登録順で 1 件選ぶ。 */
+function chooseByScore(
+  candidates: string[],
+  menus: QueueMenus,
+  score: (menuItemId: string) => number,
+): string {
+  const candidateSet = new Set(candidates);
+  const ordered = menus.filter((id) => candidateSet.has(id));
+  return ordered.reduce((best, id) => (score(id) > score(best) ? id : best));
 }
 
 /**
@@ -61,7 +72,7 @@ function totalPending(pendingOrders: PendingOrder[], menuItemId: string | null):
  * 1. 紐付き済みの完成品を差し引く
  * 2. 抽出中（と未紐付きの完成品）を、メニューごとに古い注文から順に割り当てて差し引く
  * 3. 対応予定（キューの杯）を、メニューごとに古い注文から順に割り当てて差し引く
- * A・B 以外のメニューは対象外。
+ * 営業開始時点で確定した対象メニュー以外は対象外。
  */
 export function computePendingOrders(
   orders: QueueOrder[],
@@ -69,7 +80,7 @@ export function computePendingOrders(
   queue: QueueEntry[],
   menus: QueueMenus,
 ): PendingOrder[] {
-  const menuIds = new Set([menus.a, menus.b].filter((m): m is string => m !== null));
+  const menuIds = new Set(menus);
 
   const linkedReady = new Map<string, number>();
   const unlinked = new Map<string, number>();
@@ -126,25 +137,24 @@ export function computePendingOrders(
 
 /** 長時間待ちの優先: 最も古い注文の種類を選ぶ */
 function choosePriorityMenu(pendingOrders: PendingOrder[], menus: QueueMenus): string {
-  if (menus.b === null) return menus.a;
   const [oldest, ...others] = pendingOrders;
-  const a = pendingOf(oldest, menus.a);
-  const b = pendingOf(oldest, menus.b);
-  if (a !== b) return a > b ? menus.a : menus.b;
-  // 最も古い注文の中で同数 → 他の注文の未対応杯数が多い方 → それも同数なら A
-  return totalPending(others, menus.b) > totalPending(others, menus.a) ? menus.b : menus.a;
+  const inOldest = menus.filter((id) => pendingOf(oldest, id) > 0);
+  const maxInOldest = Math.max(...inOldest.map((id) => pendingOf(oldest, id)));
+  const tied = inOldest.filter((id) => pendingOf(oldest, id) === maxInOldest);
+  // 最古注文内で同数なら他注文の未対応杯数、それも同数なら登録順
+  return chooseByScore(tied, menus, (id) => totalPending(others, id));
 }
 
 /** 通常時の決め方: 古い 3 注文の中の未対応杯数が多い種類を選ぶ */
 function chooseNormalMenu(pendingOrders: PendingOrder[], menus: QueueMenus): string {
-  if (menus.b === null) return menus.a;
   const old = pendingOrders.slice(0, OLD_ORDER_COUNT);
-  const a = totalPending(old, menus.a);
-  const b = totalPending(old, menus.b);
-  if (a !== b) return a > b ? menus.a : menus.b;
-  // 同数 → 最も古い注文に含まれる種類。両方含まれるならその注文の中で多い方、それも同数なら A
-  const oldest = old[0];
-  return pendingOf(oldest, menus.b) > pendingOf(oldest, menus.a) ? menus.b : menus.a;
+  const maxTotal = Math.max(...menus.map((id) => totalPending(old, id)));
+  let tied = menus.filter((id) => totalPending(old, id) === maxTotal);
+  // 同数なら、その候補のいずれかを含む注文のうち最古のものを基準にする。
+  // 全体の最古注文が同率候補以外の種類だけでも、登録順へ飛ばさず公平性を保つ。
+  const oldestWithCandidate = old.find((p) => tied.some((id) => pendingOf(p, id) > 0))!;
+  tied = tied.filter((id) => pendingOf(oldestWithCandidate, id) > 0);
+  return chooseByScore(tied, menus, (id) => pendingOf(oldestWithCandidate, id));
 }
 
 /**
