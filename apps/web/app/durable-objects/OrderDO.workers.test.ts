@@ -598,19 +598,44 @@ describe("OrderDO", () => {
       expect(m.status).toBe("cancelled");
     });
 
-    it("ready な注文のキャンセルは 409 を返し、DB は ready のまま", async () => {
+    it("ready な注文をキャンセルし、紐付き BrewUnit を画面から除く", async () => {
       await insertMenu("m1");
       await insertOrder("o1", 101, "ready");
       await insertOrderItem("i1", "o1", "m1", 1);
 
+      const now = isoNow();
+      await db.insert(brewUnits).values([
+        {
+          id: "u1",
+          batchId: "b1",
+          menuItemId: "m1",
+          status: "ready",
+          orderItemId: "i1",
+          businessDate: eventId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
       const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
       ws.accept();
+      await queue.next(); // SNAPSHOT
 
       const res = await cancelOrder("o1");
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(200);
 
       const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
-      expect(dbOrder[0].status).toBe("ready");
+      expect(dbOrder[0].status).toBe("cancelled");
+
+      const dbUnit = await db.select().from(brewUnits).where(eq(brewUnits.id, "u1"));
+      expect(dbUnit[0].status).toBe("ready");
+      expect(dbUnit[0].orderItemId).toBe("i1");
+
+      expect(await queue.take(2)).toEqual([
+        expect.objectContaining({ type: "ORDER_UPDATED", orderId: "o1", status: "cancelled" }),
+        expect.objectContaining({ type: "BREW_UNIT_DELETED", brewUnitId: "u1" }),
+      ]);
     });
 
     it("既に cancelled な注文を再度キャンセルすると 404 (DO メモリから削除済み)", async () => {
@@ -629,6 +654,21 @@ describe("OrderDO", () => {
 
       const second = await cancelOrder("o1");
       expect(second.status).toBe(404);
+    });
+
+    it("提供済みの completed 注文はキャンセルできない", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "completed");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      ws.accept();
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(404);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe("completed");
     });
 
     it("存在しない注文のキャンセルは 404", async () => {

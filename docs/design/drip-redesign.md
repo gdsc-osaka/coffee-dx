@@ -71,7 +71,7 @@ drip 画面が orders を直接操作していた従来の遷移をすべて自�
 最初の brew_unit が order_item に紐付く（または仮想割り当てされる） → brewing  （OrderDO 側またはフロントエンドで表現）
 全 order_item の必要数を ready な brew_unit が満たす → ready  （OrderDO が自動遷移）
 cashier が完了   → completed
-キャンセル       → cancelled
+客の依頼を受けたスタッフが提供前（pending / brewing / ready）に取消 → cancelled
 ```
 
 ---

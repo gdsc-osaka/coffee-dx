@@ -98,7 +98,7 @@ export async function action({ request, context }: Route.ActionArgs) {
       return {
         ok: false,
         error: isConflict
-          ? "提供済みの注文はキャンセルできません。"
+          ? "注文の状態が変更されたため、キャンセルできませんでした。画面を更新して確認してください。"
           : "キャンセルに失敗しました。少し待って再度お試しください。",
       };
     }
