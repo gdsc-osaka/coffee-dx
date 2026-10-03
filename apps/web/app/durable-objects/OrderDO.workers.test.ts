@@ -697,12 +697,7 @@ describe("OrderDO", () => {
   // ---------------------------------------------------------------------------
 
   describe("次枠キュー", () => {
-    const postNewOrder = (
-      orderId: string,
-      itemId: string,
-      quantity: number,
-      menuItemId = "m1",
-    ) => {
+    const postNewOrder = (orderId: string, itemId: string, quantity: number, menuItemId = "m1") => {
       const now = isoNow();
       return stub.fetch(
         new Request("http://localhost/do/new-order", {
@@ -714,9 +709,7 @@ describe("OrderDO", () => {
             status: "pending",
             createdAt: now,
             updatedAt: now,
-            items: [
-              { id: itemId, orderId, menuItemId, quantity, createdAt: now, updatedAt: now },
-            ],
+            items: [{ id: itemId, orderId, menuItemId, quantity, createdAt: now, updatedAt: now }],
           }),
         }),
       );

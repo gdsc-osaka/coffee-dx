@@ -417,14 +417,11 @@ export class OrderDurableObject implements DurableObject {
       const targetDurationSec = normalizeTargetDurationSec(body.targetDurationSec);
       // laneIndex は 0 以上の整数。負値や未指定は 0 (レーン 1) とみなす。
       const laneIndex =
-        typeof body.laneIndex === "number" &&
-        Number.isFinite(body.laneIndex) &&
-        body.laneIndex >= 0
+        typeof body.laneIndex === "number" && Number.isFinite(body.laneIndex) && body.laneIndex >= 0
           ? Math.floor(body.laneIndex)
           : 0;
 
-      if (!menuItemId || !count || count < 1)
-        return new Response("Invalid body", { status: 400 });
+      if (!menuItemId || !count || count < 1) return new Response("Invalid body", { status: 400 });
 
       // business_date は DO 自身が保持する eventId を真実源とする（クライアント任せにしない）
       const businessDate = this.eventId;
