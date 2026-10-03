@@ -133,13 +133,57 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
   const storageKey = `mobile-order:pending:${storeToken}`;
 
   useEffect(() => {
+    let cancelled = false;
+
+    const restoreSavedOrder = async (publicToken: string, savedValue: string) => {
+      try {
+        const response = await fetch(`/mobile/orders/${publicToken}/status`, {
+          headers: { Accept: "application/json" },
+        });
+        if (cancelled) return;
+
+        if (response.ok) {
+          const value: unknown = await response.json();
+          const status =
+            value && typeof value === "object" && "status" in value
+              ? (value as { status?: unknown }).status
+              : null;
+          const orderStatus =
+            value && typeof value === "object" && "orderStatus" in value
+              ? (value as { orderStatus?: unknown }).orderStatus
+              : null;
+          if (
+            status === "cancelled" ||
+            orderStatus === "cancelled" ||
+            orderStatus === "completed"
+          ) {
+            // 取消済み・受取済みならQRのメニュー画面に留まり、次の注文を始められるようにする。
+            // 別タブで新しい注文が保存されていたら、その値は消さない。
+            try {
+              if (window.localStorage.getItem(storageKey) === savedValue) {
+                window.localStorage.removeItem(storageKey);
+              }
+            } catch {
+              // 保存領域が使えなくても、客向けメニューの表示は続ける。
+            }
+            return;
+          }
+        }
+      } catch {
+        // 状態確認に失敗しても、保存済みの注文控えは表示できるようにする。
+      }
+      if (!cancelled) void navigate(`/mobile/orders/${publicToken}`, { replace: true });
+    };
+
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return;
       const confirmed = readConfirmedOrder(raw);
       if (confirmed) {
-        void navigate(`/mobile/orders/${confirmed.publicToken}`, { replace: true });
-        return;
+        void restoreSavedOrder(confirmed.publicToken, raw);
+        return () => {
+          cancelled = true;
+        };
       }
       const pending = readPendingOrder(raw);
       if (!pending) {
@@ -153,6 +197,10 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     } catch {
       setStorageError("端末の保存領域を利用できません。ブラウザの設定をご確認ください。");
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [navigate, storageKey]);
 
   useEffect(() => {

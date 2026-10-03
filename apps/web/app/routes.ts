@@ -10,6 +10,7 @@ export default [
   route("order", "_customer/home.tsx"),
   // モバイルオーダー（店舗固定QRから開く公開画面）
   route("mobile/:storeToken", "_mobile/home.tsx"),
+  route("mobile/orders/:publicToken/status", "_mobile/order-status.ts"),
   route("mobile/orders/:publicToken", "_mobile/order-receipt.tsx"),
   // 注文画面から遷移するモバイルオーダー受付・会計画面
   route("order/mobile-checkout", "_cashier/mobile-order-checkout.tsx"),

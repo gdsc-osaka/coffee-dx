@@ -12,6 +12,10 @@ import {
   orderItems,
   orders,
 } from "../../db/schema";
+import {
+  getMobileOrderByPublicToken,
+  getMobileOrderStatusByPublicToken,
+} from "../features/mobile-order/actions";
 
 type TestEnv = Env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as unknown as TestEnv;
@@ -87,6 +91,32 @@ describe("OrderDO mobile order payment", () => {
     expect(paidRequest[0].acceptedOrderId).toBeTruthy();
     expect(await db.select().from(orders)).toHaveLength(1);
     expect(await db.select().from(orderItems)).toHaveLength(1);
+
+    const publicToken = paidRequest[0].publicToken;
+    const waiting = await getMobileOrderByPublicToken(testEnv.DB, publicToken);
+    expect(waiting?.status).toBe("paid");
+    expect(waiting?.orderStatus).toBe("pending");
+    expect(await getMobileOrderStatusByPublicToken(testEnv.DB, publicToken)).toEqual({
+      status: "paid",
+      orderStatus: "pending",
+    });
+
+    await db
+      .update(orders)
+      .set({ status: "ready" })
+      .where(eq(orders.id, paidRequest[0].acceptedOrderId!));
+    expect((await getMobileOrderByPublicToken(testEnv.DB, publicToken))?.orderStatus).toBe("ready");
+    expect((await getMobileOrderStatusByPublicToken(testEnv.DB, publicToken))?.orderStatus).toBe(
+      "ready",
+    );
+
+    await db
+      .update(orders)
+      .set({ status: "completed" })
+      .where(eq(orders.id, paidRequest[0].acceptedOrderId!));
+    expect((await getMobileOrderByPublicToken(testEnv.DB, publicToken))?.orderStatus).toBe(
+      "completed",
+    );
 
     const retry = await post(requestId, "pay");
     expect(retry.status).toBe(200);
