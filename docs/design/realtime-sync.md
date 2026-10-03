@@ -8,9 +8,9 @@
 
 | 役割 | 操作 | 画面 |
 |------|------|------|
-| 客 | 注文を投稿する・キャンセルする | 静的フォーム（WebSocket不要） |
+| 客 | 注文を投稿する | 静的フォーム（WebSocket不要） |
 | ドリップ係 | 作成開始・完成を記録する | `_drip/home` |
-| 会計係 | 提供済みを記録する | `_cashier/home` |
+| 会計係 | 提供済みの記録・客の依頼による提供前の取消 | `_cashier/home` |
 
 ---
 
@@ -18,9 +18,9 @@
 
 ```
                      ┌──────────────────────────────┐
-                     │ cancelled（客がキャンセル）    │
+                     │ cancelled（客の依頼でスタッフが取消） │
                      └──────────────────────────────┘
-                       ↑ （pending または brewing から）
+                       ↑ （pending、brewing または ready から）
 pending ──→ brewing ──→ ready ──→ completed
 ```
 
@@ -30,7 +30,7 @@ pending ──→ brewing ──→ ready ──→ completed
 | `brewing` | 作成中 | ドリップ係が作成開始ボタンを押す |
 | `ready` | 完成・提供待ち | ドリップ係が完成ボタンを押す |
 | `completed` | 提供済み | 会計係が提供済みボタンを押す |
-| `cancelled` | キャンセル済み | 客がキャンセルボタンを押す |
+| `cancelled` | キャンセル済み | 客の依頼を受けたスタッフが提供前（pending / brewing / ready）に取り消す |
 
 ---
 
@@ -86,18 +86,19 @@ Worker
 
 **注文番号の採番:** `order_number_counters` テーブルで `business_date` ごとに採番。イベント終了後にカウンタをリセットすることで次回イベントは1番から再開する。
 
-### 客が注文をキャンセルする
+### 客の依頼を受けたスタッフが注文を取り消す
 
 ```
-客ブラウザ
+会計係ブラウザ
   │
-  │ POST /orders/:id/cancel（Remix action）
+  │ POST /cashier（Remix action、intent=cancel）
   ▼
 Worker
-  └─ DO.cancelOrder(orderId) を呼び出し
-       ├─ 冪等チェック：既に cancelled なら即 200 を返す
+  └─ POST /do/orders/:id/cancel を OrderDO に送る
+       ├─ pending / brewing / ready の注文だけを cancelled に遷移
        ├─ D1 の orders.status を同期で更新（楽観ロック・リトライあり）
        ├─ メモリ上の注文を cancelled に更新
+       ├─ 紐付きの抽出済み杯を画面上から除去（D1の履歴は保持）
        └─ 全スタッフ WS クライアントにブロードキャスト
             { type: "ORDER_UPDATED", orderId: "...", status: "cancelled" }
 ```

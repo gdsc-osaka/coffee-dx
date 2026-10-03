@@ -132,7 +132,7 @@ export class OrderDurableObject implements DurableObject {
       const [, orderId, action] = orderMatch;
       switch (action) {
         case "cancel":
-          return this.transitionStatus(orderId, "cancelled", ["pending", "brewing"]);
+          return this.transitionStatus(orderId, "cancelled", ["pending", "brewing", "ready"]);
         case "close":
           return this.transitionStatus(orderId, "completed", ["ready"]);
       }
