@@ -1,6 +1,6 @@
 import { CheckCircle, Coffee, ShoppingBag, Printer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Form, useActionData, useNavigation, useSubmit } from "react-router";
+import { Form, Link, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
 import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
@@ -262,12 +262,22 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       />
 
       <header className="bg-stone-900 px-4 py-8">
-        <div className="flex items-center gap-3">
-          <Coffee className="size-6 text-white" />
-          <div>
-            <h1 className="text-xl font-bold text-white tracking-wide">コーヒー愛好会</h1>
-            <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Today's Menu</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Coffee className="size-6 text-white" />
+            <div>
+              <h1 className="text-xl font-bold text-white tracking-wide">コーヒー愛好会</h1>
+              <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">
+                Today's Menu
+              </p>
+            </div>
           </div>
+          <Link
+            to="/order/mobile-checkout"
+            className="rounded-lg border border-stone-600 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-stone-800"
+          >
+            モバイル注文会計
+          </Link>
         </div>
       </header>
 

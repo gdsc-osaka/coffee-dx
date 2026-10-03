@@ -8,6 +8,11 @@ export default [
 
   // 客向け画面
   route("order", "_customer/home.tsx"),
+  // モバイルオーダー（店舗固定QRから開く公開画面）
+  route("mobile/:storeToken", "_mobile/home.tsx"),
+  route("mobile/orders/:publicToken", "_mobile/order-receipt.tsx"),
+  // 注文画面から遷移するモバイルオーダー受付・会計画面
+  route("order/mobile-checkout", "_cashier/mobile-order-checkout.tsx"),
 
   // ドリップ係画面（loaderで認証ガード）
   layout("_drip.tsx", [...prefix("drip", [index("_drip/home.tsx")])]),
