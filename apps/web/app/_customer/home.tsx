@@ -5,6 +5,7 @@ import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
 import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
 import { createOrder } from "~/features/order/actions";
+import { normalizeCartItems } from "~/features/order/normalize-cart-items";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
@@ -50,23 +51,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   // menuItemId の存在確認と name/price をサーバー側で正規化
   const menuItemIds = requestedItems.map((item) => item.menuItemId);
   const menuItemRecords = await getMenuItemsByIds(db, menuItemIds);
-  const menuItemMap = new Map(menuItemRecords.map((m) => [m.id, m]));
-
-  const cartItems = requestedItems
-    .map((item) => {
-      const menuItem = menuItemMap.get(item.menuItemId);
-      if (!menuItem) return null;
-      return {
-        menuItemId: item.menuItemId,
-        name: menuItem.name,
-        price: menuItem.price,
-        quantity: item.quantity,
-      };
-    })
-    .filter((item): item is NonNullable<typeof item> => item !== null);
-
-  if (cartItems.length === 0) {
-    return { error: "有効なメニューが選択されていません" };
+  const cartItems = normalizeCartItems(requestedItems, menuItemRecords);
+  if (!cartItems) {
+    return { error: "選択された商品に、現在注文できない商品が含まれています" };
   }
 
   try {

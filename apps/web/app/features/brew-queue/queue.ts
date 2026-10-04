@@ -32,7 +32,13 @@ export type QueueOrder = {
   status: string;
   /** JST の "YYYY-MM-DD HH:MM:SS" */
   createdAt: string;
-  items: Array<{ id: string; menuItemId: string; quantity: number }>;
+  items: Array<{
+    id: string;
+    menuItemId: string;
+    quantity: number;
+    /** 旧イベントの payload では未指定のため、未指定は brew として扱う。 */
+    fulfillmentTypeAtOrder?: "brew" | "direct";
+  }>;
 };
 
 export type QueueBrewUnit = {
@@ -103,7 +109,7 @@ export function computePendingOrders(
     .map((order) => ({
       order,
       items: order.items
-        .filter((item) => menuIds.has(item.menuItemId))
+        .filter((item) => item.fulfillmentTypeAtOrder !== "direct" && menuIds.has(item.menuItemId))
         .map((item) => ({
           menuItemId: item.menuItemId,
           remaining: Math.max(0, item.quantity - (linkedReady.get(item.id) ?? 0)),

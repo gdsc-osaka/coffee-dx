@@ -39,6 +39,8 @@ async function seedOrder(
         id: it.id,
         orderId: options.id,
         menuItemId: it.menuItemId,
+        unitPriceAtOrder: 100,
+        fulfillmentTypeAtOrder: "brew",
         quantity: it.quantity,
         createdAt: options.createdAt,
         updatedAt: options.createdAt,

@@ -103,7 +103,18 @@ describe("OrderDO", () => {
     const now = isoNow();
     return db
       .insert(orderItems)
-      .values([{ id, orderId, menuItemId, quantity, createdAt: now, updatedAt: now }]);
+      .values([
+        {
+          id,
+          orderId,
+          menuItemId,
+          unitPriceAtOrder: 100,
+          fulfillmentTypeAtOrder: "brew",
+          quantity,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
   };
 
   // ---------------------------------------------------------------------------

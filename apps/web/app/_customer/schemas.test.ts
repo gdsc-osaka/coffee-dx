@@ -31,6 +31,26 @@ describe("cartItemSchema", () => {
   });
 });
 
+describe("unitPriceAtOrder", () => {
+  it("accepts zero yen", () => {
+    const result = cartItemSchema.safeParse({
+      menuItemId: "abc",
+      unitPriceAtOrder: 0,
+      quantity: 1,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects negative prices", () => {
+    const result = cartItemSchema.safeParse({
+      menuItemId: "abc",
+      unitPriceAtOrder: -100,
+      quantity: 1,
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("cartJsonSchema", () => {
   it("正常な JSON を受け付けてパース済み配列を返す", () => {
     const input = JSON.stringify([{ menuItemId: "abc", quantity: 2 }]);

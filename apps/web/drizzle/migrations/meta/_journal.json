@@ -57,6 +57,13 @@
       "when": 1777693922243,
       "tag": "0007_tricky_meltdown",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791135285599,
+      "tag": "0008_quiet_lady_ursula",
+      "breakpoints": true
     }
   ]
 }

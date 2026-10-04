@@ -20,6 +20,8 @@ type OrderItemData = {
   orderId: string;
   menuItemId: string;
   quantity: number;
+  /** 旧イベントの payload では未指定のため、未指定は brew として扱う。 */
+  fulfillmentTypeAtOrder?: "brew" | "direct";
   name?: string;
   createdAt: string;
   updatedAt: string;
@@ -233,7 +235,13 @@ export class OrderDurableObject implements DurableObject {
         for (const item of allItems) {
           if (!itemsByOrderId.has(item.orderId)) itemsByOrderId.set(item.orderId, []);
           itemsByOrderId.get(item.orderId)!.push({
-            ...item,
+            id: item.id,
+            orderId: item.orderId,
+            menuItemId: item.menuItemId,
+            quantity: item.quantity,
+            fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
             name: menuNameById.get(item.menuItemId),
           });
         }
@@ -360,6 +368,8 @@ export class OrderDurableObject implements DurableObject {
     let anyAssigned = false;
 
     for (const item of order.items) {
+      if (item.fulfillmentTypeAtOrder === "direct") continue;
+
       const alreadyLinked = [...this.brewUnits.values()].filter(
         (u) => u.orderItemId === item.id && u.status === "ready",
       ).length;
@@ -526,6 +536,8 @@ export class OrderDurableObject implements DurableObject {
 
       for (const order of activeOrders) {
         for (const item of order.items) {
+          if (item.fulfillmentTypeAtOrder === "direct") continue;
+
           const pool = poolByMenu.get(item.menuItemId);
           if (!pool || pool.length === 0) continue;
 
@@ -547,6 +559,8 @@ export class OrderDurableObject implements DurableObject {
       // 再送時も全 active order を評価することで、以前の部分成功状態を自己修復できる。
       const readyOrders = activeOrders.filter((order) =>
         order.items.every((item) => {
+          if (item.fulfillmentTypeAtOrder === "direct") return true;
+
           const linked = [...this.brewUnits.values()].filter(
             (u) => u.orderItemId === item.id && u.status === "ready",
           ).length;
@@ -760,7 +774,9 @@ export class OrderDurableObject implements DurableObject {
     );
 
     const allReady = order.items.every(
-      (item) => linkedReady.filter((u) => u.orderItemId === item.id).length >= item.quantity,
+      (item) =>
+        item.fulfillmentTypeAtOrder === "direct" ||
+        linkedReady.filter((u) => u.orderItemId === item.id).length >= item.quantity,
     );
 
     if (allReady && order.status !== "ready") {
@@ -879,7 +895,7 @@ export class OrderDurableObject implements DurableObject {
     const menus = await db
       .select({ id: menuItems.id })
       .from(menuItems)
-      .where(eq(menuItems.isAvailable, 1))
+      .where(and(eq(menuItems.isAvailable, 1), eq(menuItems.fulfillmentType, "brew")))
       .orderBy(asc(menuItems.createdAt), asc(menuItems.id));
     if (menus.length === 0) return;
 
