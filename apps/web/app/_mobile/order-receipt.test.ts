@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import MobileOrderReceipt, { ErrorBoundary, getMobileOrderDisplayState } from "./order-receipt";
@@ -85,4 +85,30 @@ it("初回取得に失敗した場合は再試行ボタンを表示する", () =
   );
   expect(screen.getByText("注文状況を読み込めませんでした")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "再試行する" })).toBeInTheDocument();
+});
+
+it("注文控えURLをコピーできる", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+  const order: MobileOrderRequestResult = {
+    id: "request-1",
+    publicToken: "a".repeat(32),
+    businessDate: "2026-10-04",
+    orderNumber: 128,
+    status: "paid",
+    orderStatus: "pending",
+    createdAt: "2026-10-04 10:00:00",
+    items: [{ menuItemId: "coffee-1", name: "ブレンドコーヒー", quantity: 1, price: 300 }],
+  };
+  render(
+    createElement(MobileOrderReceipt, {
+      loaderData: { order },
+    } as Parameters<typeof MobileOrderReceipt>[0]),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "注文控えURLをコピー" }));
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(window.location.href));
+  expect(await screen.findByText("注文控えURLをコピーしました")).toBeInTheDocument();
 });

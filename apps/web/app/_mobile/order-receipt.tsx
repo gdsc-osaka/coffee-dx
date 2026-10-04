@@ -1,4 +1,4 @@
-import { Coffee } from "lucide-react";
+import { Check, Coffee, Copy } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/order-receipt";
@@ -212,16 +212,37 @@ function isMobileOrderStatus(value: unknown): value is MobileOrderStatus {
   );
 }
 
+async function copyCurrentUrl() {
+  const url = window.location.href;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(url);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = url;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("URLのコピーに失敗しました");
+}
+
 function MobileOrderReceiptContent({ order }: { order: MobileOrderRequestResult }) {
   const [latestStatus, setLatestStatus] = useState<MobileOrderStatus>({
     status: order.status,
     orderStatus: order.orderStatus,
   });
   const [connectionState, setConnectionState] = useState<"connected" | "retrying">("connected");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const state = getMobileOrderDisplayState(latestStatus);
   const theme = stateThemes[state];
   const content = getStateContent(state, theme);
   const shouldPoll = state !== "cancelled" && state !== "completed";
+  const showSaveNotice = shouldPoll;
 
   useEffect(() => {
     if (!shouldPoll) return;
@@ -294,6 +315,16 @@ function MobileOrderReceiptContent({ order }: { order: MobileOrderRequestResult 
     };
   }, [order.publicToken, shouldPoll]);
 
+  const handleCopyUrl = async () => {
+    try {
+      await copyCurrentUrl();
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 2_500);
+    } catch {
+      setCopyState("error");
+    }
+  };
+
   return (
     <>
       <header className="border-b border-stone-800 bg-stone-900 text-white">
@@ -350,6 +381,40 @@ function MobileOrderReceiptContent({ order }: { order: MobileOrderRequestResult 
             </p>
           </div>
         </section>
+
+        {showSaveNotice && (
+          <section
+            aria-label="注文控えの保存について"
+            className="mx-auto mt-4 max-w-[34rem] rounded-3xl border-2 border-amber-300 bg-amber-50 px-5 py-5 text-center shadow-[0_8px_24px_rgba(180,83,9,0.08)]"
+          >
+            <p className="m-0 text-base font-black leading-relaxed text-amber-950">
+              受け取りまでこの画面を閉じないでください。
+            </p>
+            <p className="mx-auto mt-2 max-w-[30rem] text-sm leading-6 text-amber-900">
+              閉じた場合に備えて、注文控えURLをコピーするか、画面をスクリーンショットで保存してください。
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleCopyUrl()}
+              className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-amber-700 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-amber-800 focus:outline-none focus:ring-4 focus:ring-amber-200"
+            >
+              {copyState === "copied" ? (
+                <Check className="size-4" aria-hidden="true" />
+              ) : (
+                <Copy className="size-4" aria-hidden="true" />
+              )}
+              {copyState === "copied" ? "注文控えURLをコピーしました" : "注文控えURLをコピー"}
+            </button>
+            <p
+              aria-live="polite"
+              className={`m-0 mt-2 min-h-5 text-xs font-bold ${copyState === "error" ? "text-red-700" : "text-amber-800"}`}
+            >
+              {copyState === "error"
+                ? "コピーできませんでした。URLを手動で保存してください。"
+                : "控えが見つからない場合は、再注文せずスタッフにお声がけください。"}
+            </p>
+          </section>
+        )}
 
         <section className="mx-auto mt-4 max-w-[34rem] rounded-3xl border border-stone-200 bg-white/95 px-5 pb-5 pt-5 shadow-[0_10px_30px_rgba(41,37,36,0.06)]">
           <div className="flex items-center justify-between gap-4 border-b border-dashed border-stone-300 pb-4">
