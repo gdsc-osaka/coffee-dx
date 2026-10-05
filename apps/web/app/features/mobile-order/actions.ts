@@ -2,16 +2,16 @@ import { getAvailableMenuItems } from "../menu/queries";
 import { createDb } from "../../lib/db";
 import { getBusinessDate } from "../../lib/order-do";
 import { getJstNowString } from "../../lib/datetime";
+import {
+  mobileIdempotencyKeySchema,
+  mobileOrderItemsSchema,
+  mobileStoreTokenSchema,
+  type MobileOrderItemInput,
+} from "./schemas";
 
-const MAX_ORDER_CUPS = 9;
-const MOBILE_STORE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
+export type { MobileOrderItemInput } from "./schemas";
 
 type MobileEnv = Env & { MOBILE_ORDER_STORE_TOKEN?: string };
-
-export type MobileOrderItemInput = {
-  menuItemId: string;
-  quantity: number;
-};
 
 export type MobileOrderItemSnapshot = MobileOrderItemInput & {
   name: string;
@@ -61,17 +61,18 @@ export class MobileOrderConflictError extends Error {
 
 export function getConfiguredMobileStoreToken(env: Env): string {
   const token = (env as MobileEnv).MOBILE_ORDER_STORE_TOKEN;
-  if (!token || !MOBILE_STORE_TOKEN_PATTERN.test(token)) {
+  const result = mobileStoreTokenSchema.safeParse(token);
+  if (!result.success) {
     throw new Error("MOBILE_ORDER_STORE_TOKEN is not configured with a secure token");
   }
-  return token;
+  return result.data;
 }
 
-export function isValidMobileStoreToken(env: Env, storeToken: string): boolean {
+export function isValidMobileStoreToken(env: Env, storeToken: unknown): storeToken is string {
   const configured = (env as MobileEnv).MOBILE_ORDER_STORE_TOKEN;
   return (
-    typeof configured === "string" &&
-    MOBILE_STORE_TOKEN_PATTERN.test(configured) &&
+    mobileStoreTokenSchema.safeParse(configured).success &&
+    mobileStoreTokenSchema.safeParse(storeToken).success &&
     storeToken === configured
   );
 }
@@ -205,32 +206,24 @@ export async function createMobileOrderRequest(
   if (!isValidMobileStoreToken(env, storeToken)) {
     throw new Response("店舗が見つかりません", { status: 404 });
   }
-  if (!/^[\x21-\x7E]{16,128}$/.test(idempotencyKey)) {
+  const idempotencyResult = mobileIdempotencyKeySchema.safeParse(idempotencyKey);
+  if (!idempotencyResult.success) {
     throw new Error("受付キーが不正です。");
   }
 
+  const itemsResult = mobileOrderItemsSchema.safeParse(requestedItems);
+  if (!itemsResult.success) {
+    throw new Error(itemsResult.error.issues[0]?.message ?? "注文内容が不正です。");
+  }
+  const validItems = itemsResult.data;
+
   const existing = await getRequestByIdempotencyKey(d1, storeToken, idempotencyKey);
   if (existing) {
-    if (!sameCart(requestedItems, existing.items)) throw new MobileOrderConflictError();
+    if (!sameCart(validItems, existing.items)) throw new MobileOrderConflictError();
     return existing;
   }
 
-  const items = normalizeCart(requestedItems);
-  if (
-    items.some(
-      (item) =>
-        typeof item.menuItemId !== "string" ||
-        item.menuItemId.length === 0 ||
-        !Number.isSafeInteger(item.quantity) ||
-        item.quantity <= 0,
-    )
-  ) {
-    throw new Error("注文数量が不正です。");
-  }
-  const totalCups = items.reduce((sum, item) => sum + item.quantity, 0);
-  if (items.length === 0 || totalCups > MAX_ORDER_CUPS) {
-    throw new Error("1注文あたりの杯数は1〜9杯で指定してください。");
-  }
+  const items = normalizeCart(validItems);
 
   const db = createDb(d1);
   const menu = await getAvailableMenuItems(db);
@@ -334,7 +327,7 @@ export async function createMobileOrderRequest(
     // 同じ idempotency key を別リクエストが先に確定した場合は、既存結果へ収束させる。
     const concurrent = await getRequestByIdempotencyKey(d1, storeToken, idempotencyKey);
     if (concurrent) {
-      if (!sameCart(requestedItems, concurrent.items)) throw new MobileOrderConflictError();
+      if (!sameCart(validItems, concurrent.items)) throw new MobileOrderConflictError();
       return concurrent;
     }
     throw error;

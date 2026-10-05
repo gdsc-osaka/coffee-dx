@@ -5,6 +5,7 @@ import {
   getMobileOrderAcceptance,
   setMobileOrderAcceptance,
 } from "~/features/mobile-order/actions";
+import { mobileOrderAcceptanceIntentSchema } from "~/features/mobile-order/schemas";
 import { getBusinessDate, getOrderDOStub } from "~/lib/order-do";
 
 type PendingMobileOrderItem = {
@@ -105,16 +106,21 @@ export async function loader({ context }: Route.LoaderArgs) {
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent");
+  const acceptanceIntent = mobileOrderAcceptanceIntentSchema.safeParse(intent);
 
-  if (intent === "stop" || intent === "resume") {
+  if (acceptanceIntent.success) {
     const storeToken = getConfiguredMobileStoreToken(context.cloudflare.env);
     await setMobileOrderAcceptance(
       context.cloudflare.env.DB,
       storeToken,
-      intent === "resume",
+      acceptanceIntent.data === "resume",
       getBusinessDate(),
     );
-    return { ok: true as const, kind: "acceptance" as const, isAccepting: intent === "resume" };
+    return {
+      ok: true as const,
+      kind: "acceptance" as const,
+      isAccepting: acceptanceIntent.data === "resume",
+    };
   }
 
   if (intent !== "pay" && intent !== "cancel") {
