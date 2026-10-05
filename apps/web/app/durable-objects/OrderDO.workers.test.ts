@@ -99,22 +99,26 @@ describe("OrderDO", () => {
       .values([{ id, businessDate, orderNumber, status, createdAt: now, updatedAt: now }]);
   };
 
-  const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
+  const insertOrderItem = (
+    id: string,
+    orderId: string,
+    menuItemId: string,
+    quantity: number,
+    fulfillmentTypeAtOrder: "brew" | "direct" = "brew",
+  ) => {
     const now = isoNow();
-    return db
-      .insert(orderItems)
-      .values([
-        {
-          id,
-          orderId,
-          menuItemId,
-          unitPriceAtOrder: 100,
-          fulfillmentTypeAtOrder: "brew",
-          quantity,
-          createdAt: now,
-          updatedAt: now,
-        },
-      ]);
+    return db.insert(orderItems).values([
+      {
+        id,
+        orderId,
+        menuItemId,
+        unitPriceAtOrder: 100,
+        fulfillmentTypeAtOrder,
+        quantity,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
   };
 
   // ---------------------------------------------------------------------------
@@ -376,10 +380,18 @@ describe("OrderDO", () => {
   // handleBatchComplete: BREW_UNIT_UPDATED + ORDER_UPDATED
   // ---------------------------------------------------------------------------
 
-  it("バッチ完了で ready 遷移と紐付けが発生し、BREW_UNIT_UPDATED と ORDER_UPDATED がブロードキャストされる", async () => {
+  it("brewとdirectの混在注文はbrewだけを紐付け、バッチ完了でreadyへ遷移する", async () => {
     await insertMenu("m1", "coffee");
+    await db.insert(menuItems).values({
+      id: "retail-1",
+      name: "biscuit",
+      price: 200,
+      fulfillmentType: "direct",
+      isAvailable: 1,
+    });
     await insertOrder("o1", 101, "pending");
     await insertOrderItem("i1", "o1", "m1", 1); // 1 杯だけ必要
+    await insertOrderItem("i-direct", "o1", "retail-1", 1, "direct");
 
     const ws = await connectWebSocket();
     const queue = createMessageQueue(ws);
@@ -428,6 +440,7 @@ describe("OrderDO", () => {
     expect(completedUnits).toHaveLength(2);
     expect(completedUnits.every((u) => u.status === "ready")).toBe(true);
     expect(completedUnits.filter((u) => u.orderItemId === "i1")).toHaveLength(1);
+    expect(completedUnits.filter((u) => u.orderItemId === "i-direct")).toHaveLength(0);
     expect(completedUnits.filter((u) => u.orderItemId === null)).toHaveLength(1);
 
     const updatedOrder = await db.select().from(orders).where(eq(orders.id, "o1"));

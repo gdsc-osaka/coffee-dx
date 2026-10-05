@@ -26,6 +26,8 @@ type OrderStatusCardProps = {
   items?: Array<{
     id: string;
     name?: string;
+    unitPriceAtOrder?: number;
+    fulfillmentTypeAtOrder?: "brew" | "direct";
     quantity: number;
     readyCount?: number;
     brewingCount?: number;
@@ -82,6 +84,10 @@ export function OrderStatusCard({
   className,
 }: OrderStatusCardProps) {
   const cfg = statusConfig[status];
+  const totalAmount =
+    items && items.every((item) => item.unitPriceAtOrder !== undefined)
+      ? items.reduce((sum, item) => sum + (item.unitPriceAtOrder ?? 0) * item.quantity, 0)
+      : null;
 
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -113,7 +119,14 @@ export function OrderStatusCard({
                   {formatMinutesAgo(createdAt)}
                 </span>
               </div>
-              <p className="text-xs text-stone-400 mt-1">{itemCount}点</p>
+              <div className="mt-1 flex items-baseline gap-2">
+                <p className="text-xs text-stone-400">{itemCount}点</p>
+                {totalAmount !== null && (
+                  <p className="text-sm font-bold text-stone-600 tabular-nums">
+                    合計 ¥{totalAmount.toLocaleString()}
+                  </p>
+                )}
+              </div>
             </div>
             <div className={cn("w-2 h-2 rounded-full mt-1.5 shrink-0", cfg.dotClass)} />
           </div>
@@ -126,42 +139,55 @@ export function OrderStatusCard({
               {items.map((item) => (
                 <li key={item.id} className="flex flex-col gap-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-stone-700 font-medium">{item.name ?? "商品"}</span>
-                    <span className="text-stone-500 tabular-nums font-medium">
+                    <span className="text-stone-700 font-medium">
+                      {item.name ?? "商品"}
+                      {item.fulfillmentTypeAtOrder === "direct" && (
+                        <span className="ml-1.5 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-bold text-sky-700">
+                          受渡済
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-right text-stone-500 tabular-nums font-medium">
+                      {item.unitPriceAtOrder !== undefined && (
+                        <span className="block text-[11px]">
+                          ¥{item.unitPriceAtOrder.toLocaleString()}
+                        </span>
+                      )}
                       ×{item.quantity}
                     </span>
                   </div>
                   {/* Virtual Status Display */}
-                  {(item.readyCount !== undefined ||
-                    item.brewingCount !== undefined ||
-                    item.pendingCount !== undefined) && (
-                    <div className="flex flex-wrap gap-1">
-                      {Array.from({ length: item.readyCount || 0 }).map((_, i) => (
-                        <span
-                          key={`ready-${i}`}
-                          className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold"
-                        >
-                          ■ 完成
-                        </span>
-                      ))}
-                      {Array.from({ length: item.brewingCount || 0 }).map((_, i) => (
-                        <span
-                          key={`brewing-${i}`}
-                          className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold"
-                        >
-                          □ 抽出中
-                        </span>
-                      ))}
-                      {Array.from({ length: item.pendingCount || 0 }).map((_, i) => (
-                        <span
-                          key={`pending-${i}`}
-                          className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded font-bold"
-                        >
-                          □ 未着手
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {item.fulfillmentTypeAtOrder !== "direct" &&
+                    (item.readyCount !== undefined ||
+                      item.brewingCount !== undefined ||
+                      item.pendingCount !== undefined) && (
+                      <div className="flex flex-wrap gap-1">
+                        {Array.from({ length: item.readyCount || 0 }).map((_, i) => (
+                          <span
+                            key={`ready-${i}`}
+                            className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold"
+                          >
+                            ■ 完成
+                          </span>
+                        ))}
+                        {Array.from({ length: item.brewingCount || 0 }).map((_, i) => (
+                          <span
+                            key={`brewing-${i}`}
+                            className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold"
+                          >
+                            □ 抽出中
+                          </span>
+                        ))}
+                        {Array.from({ length: item.pendingCount || 0 }).map((_, i) => (
+                          <span
+                            key={`pending-${i}`}
+                            className="text-[10px] bg-stone-100 text-stone-500 px-1.5 py-0.5 rounded font-bold"
+                          >
+                            □ 未着手
+                          </span>
+                        ))}
+                      </div>
+                    )}
                 </li>
               ))}
             </ul>

@@ -1,4 +1,4 @@
-import { CheckCircle, Coffee, ShoppingBag, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle, Coffee, Printer, ShoppingBag, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Form, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
@@ -7,6 +7,7 @@ import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/querie
 import { createOrder } from "~/features/order/actions";
 import { normalizeCartItems } from "~/features/order/normalize-cart-items";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
 import { MenuItemCard } from "./components/MenuItemCard";
 import { cartJsonSchema } from "./schemas";
@@ -15,6 +16,16 @@ import { receiptGenerator } from "~/features/printer/receipt-generator";
 import { CashierHeader } from "./components/CashierHeader";
 import { OrderHistoryDialog } from "./components/OrderHistoryDialog";
 import { PrinterSettingsDialog } from "./components/PrinterSettingsDialog";
+import { PriceAdjustmentDialog } from "./components/PriceAdjustmentDialog";
+import {
+  addBasePriceItem,
+  addPriceLine,
+  getBasePriceQuantity,
+  removeOneMenuItem,
+  updatePriceLinePrice,
+  updatePriceLineQuantity,
+  type OrderCartLine,
+} from "./cart";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import { isLXPrinterError, type PrinterStatus } from "lx-printer/lx-d02";
 
@@ -62,20 +73,21 @@ export async function action({ request, context }: Route.ActionArgs) {
     });
     // 印字に必要な name/quantity をサーバー正規化済みの cartItems から返す。
     // クライアントの cart 状態にズレがあっても、レシートと DB に永続化された注文内容を一致させる。
-    const items = cartItems.map((c) => ({ name: c.name, quantity: c.quantity }));
+    const items = cartItems.map((c) => ({
+      name: c.name,
+      unitPriceAtOrder: c.unitPriceAtOrder ?? c.price,
+      quantity: c.quantity,
+    }));
+    const menuItemMap = new Map(menuItemRecords.map((item) => [item.id, item]));
+    const requiresBrewing = cartItems.some(
+      (item) => menuItemMap.get(item.menuItemId)?.fulfillmentType !== "direct",
+    );
     // Date は JSON シリアライズで ISO 文字列に変換されるので、クライアントで new Date() で復元する
-    return { orderNumber, createdAt: createdAt.toISOString(), items, isFree };
+    return { orderNumber, createdAt: createdAt.toISOString(), items, isFree, requiresBrewing };
   } catch {
     return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
   }
 }
-
-type CartItem = {
-  menuItemId: string;
-  name: string;
-  price: number;
-  quantity: number;
-};
 
 type Phase = "menu" | "confirm" | "complete";
 
@@ -86,14 +98,15 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const submit = useSubmit();
   const isSubmitting = navigation.state === "submitting";
 
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<OrderCartLine[]>([]);
   const [phase, setPhase] = useState<Phase>("menu");
   const [completedOrderNumber, setCompletedOrderNumber] = useState<number | null>(null);
   const [completedOrderCreatedAt, setCompletedOrderCreatedAt] = useState<Date | null>(null);
   const [completedOrderItems, setCompletedOrderItems] = useState<
-    { name: string; quantity: number }[]
+    { name: string; unitPriceAtOrder: number; quantity: number }[]
   >([]);
   const [completedOrderIsFree, setCompletedOrderIsFree] = useState(false);
+  const [completedOrderRequiresBrewing, setCompletedOrderRequiresBrewing] = useState(true);
   const [isFree, setIsFree] = useState(false);
   const [printerStatus, setPrinterStatus] = useState<ConnectionStatus>("disconnected");
   const [printerStatusData, setPrinterStatusData] = useState<PrinterStatus | null>(null);
@@ -101,6 +114,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const [isPrinterSettingsOpen, setIsPrinterSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isAutoPrintEnabled, setIsAutoPrintEnabled] = useState(true);
+  const [adjustingItem, setAdjustingItem] = useState<(typeof items)[number] | null>(null);
   const processedActionData = useRef<any>(null);
 
   // 初回マウント時にフォントなどをバックグラウンドでプリロードしておく
@@ -131,10 +145,12 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       // （クライアント cart に改変があっても DB に永続化された注文と必ず一致させるため）
       const serverItems = actionData.items ?? [];
       const orderIsFree = actionData.isFree ?? false;
+      const requiresBrewing = actionData.requiresBrewing ?? true;
       setCompletedOrderNumber(actionData.orderNumber);
       setCompletedOrderCreatedAt(createdAt);
       setCompletedOrderItems(serverItems);
       setCompletedOrderIsFree(orderIsFree);
+      setCompletedOrderRequiresBrewing(requiresBrewing);
       setPhase("complete");
 
       // 自動印刷の実行
@@ -202,29 +218,17 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
     }
   };
 
-  const getQuantity = (menuItemId: string) =>
-    cart.find((c) => c.menuItemId === menuItemId)?.quantity ?? 0;
-
   const handleAdd = (item: { id: string; name: string; price: number }) => {
-    setCart((prev) => {
-      const existing = prev.find((c) => c.menuItemId === item.id);
-      if (existing) {
-        return prev.map((c) => (c.menuItemId === item.id ? { ...c, quantity: c.quantity + 1 } : c));
-      }
-      return [...prev, { menuItemId: item.id, name: item.name, price: item.price, quantity: 1 }];
-    });
+    setCart((prev) => addBasePriceItem(prev, item));
   };
 
-  const handleRemove = (menuItemId: string) => {
-    setCart((prev) =>
-      prev
-        .map((c) => (c.menuItemId === menuItemId ? { ...c, quantity: c.quantity - 1 } : c))
-        .filter((c) => c.quantity > 0),
-    );
+  const handleRemove = (item: { id: string; price: number }) => {
+    setCart((prev) => removeOneMenuItem(prev, item.id, item.price));
   };
 
   const totalItems = cart.reduce((sum, c) => sum + c.quantity, 0);
-  const totalPrice = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const totalPrice = cart.reduce((sum, c) => sum + c.unitPriceAtOrder * c.quantity, 0);
+  const adjustedLines = cart.filter((line) => line.unitPriceAtOrder !== line.basePrice);
 
   const handleCloseDialog = () => {
     if (phase === "complete") {
@@ -233,6 +237,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       setCompletedOrderCreatedAt(null);
       setCompletedOrderItems([]);
       setCompletedOrderIsFree(false);
+      setCompletedOrderRequiresBrewing(true);
       setIsFree(false);
     }
     setPhase("menu");
@@ -240,7 +245,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="min-h-screen bg-stone-100 flex flex-col">
-      {/* スタッフ向けヘッダー (常に表示・180°回転) */}
+      {/* スタッフ向けヘッダー */}
       <CashierHeader
         printerStatus={printerStatus}
         printerStatusData={printerStatusData}
@@ -252,8 +257,8 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center gap-3">
           <Coffee className="size-6 text-white" />
           <div>
-            <h1 className="text-xl font-bold text-white tracking-wide">コーヒー愛好会</h1>
-            <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Today's Menu</p>
+            <h1 className="text-xl font-bold text-white tracking-wide">注文受付</h1>
+            <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Order Entry</p>
           </div>
         </div>
       </header>
@@ -265,9 +270,10 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             name={item.name}
             price={item.price}
             description={item.description}
-            quantity={getQuantity(item.id)}
+            quantity={getBasePriceQuantity(cart, item.id, item.price)}
             onAdd={() => handleAdd(item)}
-            onRemove={() => handleRemove(item.id)}
+            onRemove={() => handleRemove(item)}
+            onAdjustPrice={() => setAdjustingItem(item)}
           />
         ))}
 
@@ -283,6 +289,92 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       {totalItems > 0 && phase === "menu" && (
         <div className="fixed bottom-0 inset-x-0 p-4 bg-white border-t border-stone-200 shadow-lg">
           <div className="max-w-lg mx-auto flex flex-col gap-2">
+            {adjustedLines.length > 0 && (
+              <div className="max-h-56 space-y-2 overflow-y-auto rounded-2xl bg-amber-50 p-3">
+                <p className="text-sm font-bold text-amber-900">価格変更商品</p>
+                {adjustedLines.map((line) => (
+                  <div key={line.id} className="rounded-xl bg-white p-3 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="min-w-0 truncate text-sm font-bold text-stone-800">
+                        {line.name}
+                      </span>
+                      <span className="shrink-0 text-sm font-black tabular-nums text-stone-800">
+                        ¥{(line.unitPriceAtOrder * line.quantity).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={0}
+                        step={1}
+                        defaultValue={line.unitPriceAtOrder}
+                        inputMode="numeric"
+                        aria-label={`${line.name}の変更価格`}
+                        className="h-10 w-28 text-right tabular-nums"
+                        onBlur={(event) => {
+                          const value = event.currentTarget.value.trim();
+                          if (value === "") {
+                            event.currentTarget.value = String(line.unitPriceAtOrder);
+                            return;
+                          }
+                          const nextPrice = Number(value);
+                          if (!Number.isSafeInteger(nextPrice) || nextPrice < 0) {
+                            event.currentTarget.value = String(line.unitPriceAtOrder);
+                            return;
+                          }
+                          setCart((current) => updatePriceLinePrice(current, line.id, nextPrice));
+                        }}
+                      />
+                      <span className="text-sm text-stone-500">円 ×</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-10 rounded-full"
+                        onClick={() =>
+                          setCart((current) =>
+                            updatePriceLineQuantity(current, line.id, line.quantity - 1),
+                          )
+                        }
+                        disabled={line.quantity <= 1}
+                        aria-label={`${line.name}の変更個数を1つ減らす`}
+                      >
+                        −
+                      </Button>
+                      <span className="w-6 text-center font-bold tabular-nums">
+                        {line.quantity}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="size-10 rounded-full"
+                        onClick={() =>
+                          setCart((current) =>
+                            updatePriceLineQuantity(current, line.id, line.quantity + 1),
+                          )
+                        }
+                        aria-label={`${line.name}の変更個数を1つ増やす`}
+                      >
+                        +
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="ml-auto size-10 text-stone-500 hover:text-red-600"
+                        onClick={() =>
+                          setCart((current) => updatePriceLineQuantity(current, line.id, 0))
+                        }
+                        aria-label={`${line.name}の価格変更を削除`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <Button
               type="button"
               className="w-full bg-stone-900 hover:bg-stone-800 text-white h-16 text-lg rounded-2xl"
@@ -309,94 +401,114 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {/* 会計確認フェーズ — フルスクリーン二分割 */}
+      {/* 会計確認フェーズ — スタッフ向けの通常方向レイアウト */}
       {phase === "confirm" && (
-        <div className="fixed inset-0 flex flex-col">
-          {/* 上部: スタッフ向け（180°回転してカウンター越しに読める） */}
-          <div className="shrink-0 flex flex-col rotate-180 bg-stone-900 p-3 gap-2">
-            <p className="text-stone-500 text-xs text-center tracking-widest uppercase">Cashier</p>
-            <div className="space-y-1">
-              {cart.map((item) => (
-                <div key={item.menuItemId} className="flex justify-between text-sm text-white">
-                  <span>
-                    {item.name} × {item.quantity}
-                  </span>
-                  <span className="tabular-nums">
-                    ¥{(item.price * item.quantity).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-              <div className="border-t border-stone-700 mt-1.5 pt-1.5 flex justify-between items-baseline">
-                <span className="text-stone-400 text-sm">合計</span>
-                <span className="text-6xl font-black text-white tabular-nums">
-                  ¥{totalPrice.toLocaleString()}
-                </span>
+        <div className="fixed inset-0 z-40 flex flex-col bg-stone-100">
+          <header className="shrink-0 bg-stone-900 px-4 py-4 text-white">
+            <div className="mx-auto flex max-w-lg items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-stone-800 hover:text-white"
+                onClick={() => {
+                  setIsFree(false);
+                  setPhase("menu");
+                }}
+                aria-label="商品選択に戻る"
+              >
+                <ArrowLeft className="size-5" />
+              </Button>
+              <div>
+                <h2 className="text-lg font-bold">注文内容の確認</h2>
+                <p className="text-xs text-stone-400">内容と金額を確認して会計を確定します</p>
               </div>
             </div>
+          </header>
+
+          <main className="mx-auto w-full max-w-lg flex-1 overflow-y-auto px-4 py-5 pb-56">
+            <div className="space-y-3">
+              {cart.map((item) => (
+                <div key={item.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-stone-900">{item.name}</p>
+                      <p className="mt-1 text-sm text-stone-500 tabular-nums">
+                        ¥{item.unitPriceAtOrder.toLocaleString()} × {item.quantity}
+                      </p>
+                      {item.unitPriceAtOrder !== item.basePrice && (
+                        <p className="mt-1 text-xs font-medium text-amber-700">
+                          定価 ¥{item.basePrice.toLocaleString()} から変更
+                        </p>
+                      )}
+                    </div>
+                    <p className="text-lg font-black text-stone-900 tabular-nums">
+                      ¥{(item.unitPriceAtOrder * item.quantity).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {actionData && "error" in actionData && (
-              <p className="text-sm text-red-400 text-center">{actionData.error}</p>
-            )}
-            {isFree && (
-              <p className="text-sky-400 text-xs text-center font-bold tracking-widest">
-                ** 無料サービス **
+              <p className="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
+                {actionData.error}
               </p>
             )}
-            <Form method="post" onSubmit={handlePrintSubmit}>
-              <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
-              <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
-              <Button
-                type="submit"
-                className={`w-full h-14 text-2xl font-black text-white border-0 rounded-2xl ${
-                  isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
-                }`}
-                disabled={isSubmitting || printerStatusData?.isPrinting}
-              >
-                {isSubmitting
-                  ? "処理中..."
-                  : printerStatusData?.isPrinting
-                    ? "印刷中..."
-                    : isFree
-                      ? "無料で確定する"
-                      : "会計を確定する"}
-              </Button>
-            </Form>
-            {isAutoPrintEnabled && (
-              <p className="text-[10px] text-stone-600 text-center">
-                ※プリンター未接続時は会計確定時に接続ダイアログが表示されます
-              </p>
-            )}
-            <button
-              type="button"
-              className="text-stone-600 text-sm text-center py-0.5"
-              onClick={() => {
-                setIsFree(false);
-                setPhase("menu");
-              }}
-            >
-              キャンセル
-            </button>
-          </div>
+          </main>
 
-          {/* 区切り線 */}
-          <div className="h-1 bg-stone-300 shrink-0" />
-
-          {/* 下部: お客様向け（正位）*/}
-          <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
-            {isFree ? (
-              <>
-                <p className="text-2xl font-bold text-stone-700 tracking-wide">無料サービスです</p>
-                <p className="text-8xl font-black text-sky-600 leading-none">FREE</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-stone-700 tracking-wide">
-                  現金でお支払いください
-                </p>
-                <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
+          <div className="fixed inset-x-0 bottom-0 border-t border-stone-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+            <div className="mx-auto max-w-lg space-y-3">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-sm text-stone-500">{totalItems}点の合計</p>
+                  {isFree && <p className="text-sm font-bold text-sky-600">無料サービス</p>}
+                </div>
+                <p className="text-4xl font-black text-stone-900 tabular-nums">
                   ¥{totalPrice.toLocaleString()}
                 </p>
-              </>
-            )}
+              </div>
+              <Form method="post" onSubmit={handlePrintSubmit}>
+                <input
+                  type="hidden"
+                  name="cartJson"
+                  value={JSON.stringify(
+                    cart.map(({ menuItemId, unitPriceAtOrder, quantity }) => ({
+                      menuItemId,
+                      unitPriceAtOrder,
+                      quantity,
+                    })),
+                  )}
+                />
+                <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
+                <Button
+                  type="submit"
+                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${
+                    isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
+                  }`}
+                  disabled={isSubmitting || printerStatusData?.isPrinting}
+                >
+                  {isSubmitting
+                    ? "処理中..."
+                    : printerStatusData?.isPrinting
+                      ? "印刷中..."
+                      : isFree
+                        ? "無料で確定する"
+                        : "支払いを確定する"}
+                </Button>
+              </Form>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-10 w-full text-stone-500"
+                onClick={() => {
+                  setIsFree(false);
+                  setPhase("menu");
+                }}
+              >
+                キャンセル
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -418,7 +530,11 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                   #{completedOrderNumber}
                 </p>
               </div>
-              <p className="text-stone-500 text-sm text-center">ドリップ完了後にお呼びします</p>
+              <p className="text-stone-500 text-sm text-center">
+                {completedOrderRequiresBrewing
+                  ? "ドリップ完了後にお呼びします"
+                  : "商品の受け渡しが完了しました"}
+              </p>
               <div className="flex flex-col w-full gap-2">
                 <Button
                   type="button"
@@ -455,6 +571,18 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
       />
 
       <OrderHistoryDialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen} />
+
+      <PriceAdjustmentDialog
+        item={adjustingItem}
+        onOpenChange={(open) => {
+          if (!open) setAdjustingItem(null);
+        }}
+        onComplete={(unitPrice, quantity) => {
+          if (!adjustingItem) return;
+          setCart((current) => addPriceLine(current, adjustingItem, unitPrice, quantity));
+          setAdjustingItem(null);
+        }}
+      />
     </div>
   );
 }
