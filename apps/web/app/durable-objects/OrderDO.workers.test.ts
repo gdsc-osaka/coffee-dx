@@ -113,7 +113,7 @@ describe("OrderDO", () => {
         orderId,
         menuItemId,
         unitPriceAtOrder: 100,
-        fulfillmentTypeAtOrder,
+        fulfillmentTypeAtOrder: "brew",
         quantity,
         createdAt: now,
         updatedAt: now,
