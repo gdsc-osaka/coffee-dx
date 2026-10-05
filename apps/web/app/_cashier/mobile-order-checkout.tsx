@@ -5,6 +5,7 @@ import {
   getMobileOrderAcceptance,
   setMobileOrderAcceptance,
 } from "~/features/mobile-order/actions";
+import { mobileOrderAcceptanceIntentSchema } from "~/features/mobile-order/schemas";
 import { getBusinessDate } from "~/lib/order-do";
 
 type PendingMobileOrder = {
@@ -37,7 +38,8 @@ export async function loader({ context }: Route.LoaderArgs) {
 export async function action({ request, context }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent");
-  if (intent !== "stop" && intent !== "resume") {
+  const intentResult = mobileOrderAcceptanceIntentSchema.safeParse(intent);
+  if (!intentResult.success) {
     return { ok: false as const, error: "受付状態の操作が不正です。" };
   }
 
@@ -45,10 +47,10 @@ export async function action({ request, context }: Route.ActionArgs) {
   await setMobileOrderAcceptance(
     context.cloudflare.env.DB,
     storeToken,
-    intent === "resume",
+    intentResult.data === "resume",
     getBusinessDate(),
   );
-  return { ok: true as const, isAccepting: intent === "resume" };
+  return { ok: true as const, isAccepting: intentResult.data === "resume" };
 }
 
 export default function MobileOrderCheckout({ loaderData }: Route.ComponentProps) {

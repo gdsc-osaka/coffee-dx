@@ -1,9 +1,10 @@
 import type { Route } from "./+types/order-receipt";
 import { getMobileOrderByPublicToken } from "~/features/mobile-order/actions";
+import { mobilePublicTokenSchema } from "~/features/mobile-order/schemas";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const publicToken = params.publicToken;
-  if (!publicToken || !/^[0-9a-f]{32}$/.test(publicToken)) {
+  if (!mobilePublicTokenSchema.safeParse(publicToken).success) {
     throw new Response("注文が見つかりません", { status: 404 });
   }
   const order = await getMobileOrderByPublicToken(context.cloudflare.env.DB, publicToken);
