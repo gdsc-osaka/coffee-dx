@@ -9,15 +9,22 @@ import {
   isValidMobileStoreToken,
   MobileOrderClosedError,
   MobileOrderConflictError,
-  type MobileOrderItemInput,
 } from "~/features/mobile-order/actions";
+import {
+  confirmedMobileOrderSchema,
+  mobileIdempotencyKeySchema,
+  pendingMobileOrderSchema,
+  type ConfirmedMobileOrder,
+  type MobileOrderItemInput,
+  type PendingMobileOrder,
+} from "~/features/mobile-order/schemas";
 import { createDb } from "~/lib/db";
 import { getAvailableMenuItems } from "~/features/menu/queries";
 import { getBusinessDate } from "~/lib/order-do";
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const storeToken = params.storeToken;
-  if (!storeToken || !isValidMobileStoreToken(context.cloudflare.env, storeToken)) {
+  if (!isValidMobileStoreToken(context.cloudflare.env, storeToken)) {
     throw new Response("店舗が見つかりません", { status: 404 });
   }
 
@@ -31,14 +38,15 @@ export async function loader({ params, context }: Route.LoaderArgs) {
 
 export async function action({ request, params, context }: Route.ActionArgs) {
   const storeToken = params.storeToken;
-  if (!storeToken || !isValidMobileStoreToken(context.cloudflare.env, storeToken)) {
+  if (!isValidMobileStoreToken(context.cloudflare.env, storeToken)) {
     return { ok: false as const, error: "店舗が見つかりません。" };
   }
 
   const formData = await request.formData();
   const cartJson = formData.get("cartJson");
   const idempotencyKey = formData.get("idempotencyKey");
-  if (typeof cartJson !== "string" || typeof idempotencyKey !== "string") {
+  const idempotencyKeyResult = mobileIdempotencyKeySchema.safeParse(idempotencyKey);
+  if (!idempotencyKeyResult.success) {
     return { ok: false as const, error: "注文内容が不正です。" };
   }
 
@@ -53,7 +61,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       context.cloudflare.env,
       storeToken,
       parsed.data,
-      idempotencyKey,
+      idempotencyKeyResult.data,
     );
     return { ok: true as const, order: result };
   } catch (error) {
@@ -73,51 +81,25 @@ export async function action({ request, params, context }: Route.ActionArgs) {
 }
 
 type CartItem = MobileOrderItemInput & { name: string; price: number };
-type PendingOrder = { idempotencyKey: string; cart: CartItem[] };
-type ConfirmedOrder = { publicToken: string };
+type PendingOrder = PendingMobileOrder;
+type ConfirmedOrder = ConfirmedMobileOrder;
 
-function readConfirmedOrder(raw: string): ConfirmedOrder | null {
+function parseStorageValue(raw: string): unknown | null {
   try {
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object") return null;
-    const publicToken = (value as Partial<ConfirmedOrder>).publicToken;
-    return typeof publicToken === "string" && /^[0-9a-f]{32}$/.test(publicToken)
-      ? { publicToken }
-      : null;
+    return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 
+function readConfirmedOrder(raw: string): ConfirmedOrder | null {
+  const result = confirmedMobileOrderSchema.safeParse(parseStorageValue(raw));
+  return result.success ? result.data : null;
+}
+
 function readPendingOrder(raw: string): PendingOrder | null {
-  try {
-    const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object") return null;
-    const pending = value as Partial<PendingOrder>;
-    if (
-      typeof pending.idempotencyKey !== "string" ||
-      !/^[\x21-\x7E]{16,128}$/.test(pending.idempotencyKey) ||
-      !Array.isArray(pending.cart) ||
-      pending.cart.length === 0 ||
-      !pending.cart.every(
-        (item) =>
-          item &&
-          typeof item.menuItemId === "string" &&
-          item.menuItemId.length > 0 &&
-          typeof item.name === "string" &&
-          typeof item.price === "number" &&
-          Number.isFinite(item.price) &&
-          Number.isSafeInteger(item.quantity) &&
-          item.quantity > 0,
-      ) ||
-      pending.cart.reduce((sum, item) => sum + item.quantity, 0) > 9
-    ) {
-      return null;
-    }
-    return pending as PendingOrder;
-  } catch {
-    return null;
-  }
+  const result = pendingMobileOrderSchema.safeParse(parseStorageValue(raw));
+  return result.success ? result.data : null;
 }
 
 export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {

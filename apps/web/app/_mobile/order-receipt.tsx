@@ -7,13 +7,13 @@ import {
   type MobileOrderRequestResult,
   type MobileOrderStatus,
 } from "~/features/mobile-order/actions";
+import { mobilePublicTokenSchema } from "~/features/mobile-order/schemas";
 
-const PUBLIC_TOKEN_PATTERN = /^[0-9a-f]{32}$/;
 const REFRESH_INTERVAL_MS = 5_000;
 
 export async function loader({ params, context }: Route.LoaderArgs) {
   const publicToken = params.publicToken;
-  if (!publicToken || !PUBLIC_TOKEN_PATTERN.test(publicToken)) {
+  if (!mobilePublicTokenSchema.safeParse(publicToken).success) {
     throw new Response("注文が見つかりません", { status: 404 });
   }
   const order = await getMobileOrderByPublicToken(context.cloudflare.env.DB, publicToken);
