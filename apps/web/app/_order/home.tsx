@@ -238,6 +238,16 @@ export default function OrderHome({ loaderData }: Route.ComponentProps) {
 
   const totalItems = cart.reduce((sum, c) => sum + c.quantity, 0);
   const totalPrice = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const confirmButtonBgColor = isFree
+    ? "bg-sky-600 hover:bg-sky-500"
+    : "bg-emerald-600 hover:bg-emerald-500";
+  const isConfirmButtonDisabled = isSubmitting || Boolean(printerStatusData?.isPrinting);
+
+  const getConfirmButtonText = () => {
+    if (isSubmitting) return "処理中...";
+    if (printerStatusData?.isPrinting) return "印刷中...";
+    return isFree ? "無料で確定する" : "支払いを確定する";
+  };
 
   const handleCloseDialog = () => {
     if (phase === "complete") {
@@ -388,18 +398,10 @@ export default function OrderHome({ loaderData }: Route.ComponentProps) {
                 <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
                 <Button
                   type="submit"
-                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${
-                    isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
-                  }`}
-                  disabled={isSubmitting || printerStatusData?.isPrinting}
+                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${confirmButtonBgColor}`}
+                  disabled={isConfirmButtonDisabled}
                 >
-                  {isSubmitting
-                    ? "処理中..."
-                    : printerStatusData?.isPrinting
-                      ? "印刷中..."
-                      : isFree
-                        ? "無料で確定する"
-                        : "支払いを確定する"}
+                  {getConfirmButtonText()}
                 </Button>
               </Form>
               {isAutoPrintEnabled && (
