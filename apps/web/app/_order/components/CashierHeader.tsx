@@ -18,9 +18,7 @@ export function CashierHeader({
   return (
     <div className="shrink-0 flex flex-col bg-stone-950 p-2 gap-1 border-b border-stone-800">
       <div className="max-w-lg mx-auto w-full flex items-center justify-between px-2">
-        <p className="text-stone-600 text-[10px] tracking-widest uppercase font-bold">
-          Staff Order
-        </p>
+        <p className="text-stone-600 text-[10px] tracking-widest uppercase font-bold">注文管理</p>
         <div className="flex items-center gap-2 text-[10px] text-stone-500">
           {printerStatus === "connected" && printerStatusData && (
             <div className="flex items-center gap-1">
