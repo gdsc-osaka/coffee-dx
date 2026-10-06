@@ -1,13 +1,13 @@
 import { type RouteConfig, index, layout, prefix, route } from "@react-router/dev/routes";
 
 export default [
-  // ルートは客向け画面（/order）へリダイレクト
-  // PWA scope を役割ごとに完全分離するため、customer は /order に置く
+  // ルートは店頭注文・会計画面（/order）へリダイレクト
+  // 注文管理 PWA の scope は /order/ に限定する
   // （Chrome は scope 重複した PWA の同時インストールを抑制するため）
   index("_root-redirect.tsx"),
 
-  // 客向け画面
-  route("order", "_customer/home.tsx"),
+  // 店頭注文・会計画面（スタッフ向け）。認証は別ブランチで実装する。
+  layout("_order.tsx", [route("order", "_order/home.tsx")]),
 
   // ドリップ係画面（loaderで認証ガード）
   layout("_drip.tsx", [...prefix("drip", [index("_drip/home.tsx")])]),
