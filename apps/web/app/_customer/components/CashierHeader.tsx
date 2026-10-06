@@ -1,4 +1,12 @@
-import { AlertCircle, Battery, BatteryLow, Bluetooth, History, Package, Settings } from "lucide-react";
+import {
+  AlertCircle,
+  Battery,
+  BatteryLow,
+  Bluetooth,
+  History,
+  Package,
+  Settings,
+} from "lucide-react";
 import { Link } from "react-router";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import type { PrinterStatus } from "lx-printer/lx-d02";
