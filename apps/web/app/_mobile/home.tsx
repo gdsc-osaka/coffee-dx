@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, useActionData, useNavigate, useNavigation } from "react-router";
+import {
+  Form,
+  isRouteErrorResponse,
+  useActionData,
+  useNavigate,
+  useNavigation,
+} from "react-router";
 import type { Route } from "./+types/home";
 import { MenuItemCard } from "~/components/MenuItemCard";
 import { cartJsonSchema } from "~/features/order/schemas";
@@ -78,6 +84,21 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       error: "注文を受け付けられませんでした。時間をおいて再度お試しください。",
     };
   }
+}
+
+// root の ErrorBoundary は 404 を英語の固定文言で表示するため、客向け画面では専用の表示にする。
+export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  const message =
+    isRouteErrorResponse(error) && error.status === 404
+      ? "店舗が見つかりません。QRコードを読み取り直してください。"
+      : "ページを表示できませんでした。時間をおいて再度お試しください。";
+  return (
+    <main className="min-h-screen bg-stone-100 px-4 py-16">
+      <p className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center text-stone-700 shadow-sm">
+        {message}
+      </p>
+    </main>
+  );
 }
 
 type CartItem = MobileOrderItemInput & { name: string; price: number };

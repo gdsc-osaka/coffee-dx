@@ -1,3 +1,4 @@
+import { isRouteErrorResponse } from "react-router";
 import type { Route } from "./+types/order-receipt";
 import { getMobileOrderByPublicToken } from "~/features/mobile-order/actions";
 import { mobilePublicTokenSchema } from "~/features/mobile-order/schemas";
@@ -10,6 +11,21 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const order = await getMobileOrderByPublicToken(context.cloudflare.env.DB, publicToken);
   if (!order) throw new Response("注文が見つかりません", { status: 404 });
   return { order };
+}
+
+// root の ErrorBoundary は 404 を英語の固定文言で表示するため、客向け画面では専用の表示にする。
+export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  const message =
+    isRouteErrorResponse(error) && error.status === 404
+      ? "注文が見つかりません。URLをご確認いただくか、スタッフにお声がけください。"
+      : "ページを表示できませんでした。時間をおいて再度お試しください。";
+  return (
+    <main className="min-h-screen bg-stone-100 px-4 py-16">
+      <p className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center text-stone-700 shadow-sm">
+        {message}
+      </p>
+    </main>
+  );
 }
 
 export default function MobileOrderReceipt({ loaderData }: Route.ComponentProps) {
