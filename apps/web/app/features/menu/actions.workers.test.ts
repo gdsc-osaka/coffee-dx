@@ -88,8 +88,8 @@ describe("menu item registration", () => {
   });
 
   it("存在しない商品の販売状態は変更できない", async () => {
-    await expect(
-      setMenuItemAvailability(env.DB, "not-found-id", true),
-    ).rejects.toBeInstanceOf(MenuItemValidationError);
+    await expect(setMenuItemAvailability(env.DB, "not-found-id", true)).rejects.toBeInstanceOf(
+      MenuItemValidationError,
+    );
   });
 });

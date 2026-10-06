@@ -19,7 +19,9 @@ export async function loader({ context }: Route.LoaderArgs) {
     id: row.id,
     name: row.name,
     price: row.price,
-    fulfillmentType: (row.fulfillmentType === "brew" ? "brew" : "direct") as MenuItemFulfillmentType,
+    fulfillmentType: (row.fulfillmentType === "brew"
+      ? "brew"
+      : "direct") as MenuItemFulfillmentType,
     isAvailable: row.isAvailable === 1,
   }));
   return { items };
@@ -142,13 +144,7 @@ export default function MenuItems({ loaderData }: Route.ComponentProps) {
               <legend className="block text-xs font-bold text-stone-500">区分</legend>
               <div className="mt-1 flex gap-4">
                 <label className="flex items-center gap-2 text-sm text-stone-700">
-                  <input
-                    type="radio"
-                    name="fulfillmentType"
-                    value="brew"
-                    defaultChecked
-                    required
-                  />
+                  <input type="radio" name="fulfillmentType" value="brew" defaultChecked required />
                   コーヒー（抽出が必要）
                 </label>
                 <label className="flex items-center gap-2 text-sm text-stone-700">
