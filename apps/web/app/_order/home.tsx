@@ -1,4 +1,4 @@
-import { CheckCircle, Coffee, ShoppingBag, Printer } from "lucide-react";
+import { ArrowLeft, CheckCircle, Coffee, ShoppingBag, Printer } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Form, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
@@ -92,7 +92,7 @@ type CartItem = {
 
 type Phase = "menu" | "confirm" | "complete";
 
-export default function CustomerHome({ loaderData }: Route.ComponentProps) {
+export default function OrderHome({ loaderData }: Route.ComponentProps) {
   const { items } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -238,6 +238,16 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
   const totalItems = cart.reduce((sum, c) => sum + c.quantity, 0);
   const totalPrice = cart.reduce((sum, c) => sum + c.price * c.quantity, 0);
+  const confirmButtonBgColor = isFree
+    ? "bg-sky-600 hover:bg-sky-500"
+    : "bg-emerald-600 hover:bg-emerald-500";
+  const isConfirmButtonDisabled = isSubmitting || Boolean(printerStatusData?.isPrinting);
+
+  const getConfirmButtonText = () => {
+    if (isSubmitting) return "処理中...";
+    if (printerStatusData?.isPrinting) return "印刷中...";
+    return isFree ? "無料で確定する" : "支払いを確定する";
+  };
 
   const handleCloseDialog = () => {
     if (phase === "complete") {
@@ -253,7 +263,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="min-h-screen bg-stone-100 flex flex-col">
-      {/* スタッフ向けヘッダー (常に表示・180°回転) */}
+      {/* スタッフ向けヘッダー */}
       <CashierHeader
         printerStatus={printerStatus}
         printerStatusData={printerStatusData}
@@ -322,94 +332,95 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
         </div>
       )}
 
-      {/* 会計確認フェーズ — フルスクリーン二分割 */}
+      {/* 会計確認フェーズ — スタッフ向けの通常方向レイアウト */}
       {phase === "confirm" && (
-        <div className="fixed inset-0 flex flex-col">
-          {/* 上部: スタッフ向け（180°回転してカウンター越しに読める） */}
-          <div className="shrink-0 flex flex-col rotate-180 bg-stone-900 p-3 gap-2">
-            <p className="text-stone-500 text-xs text-center tracking-widest uppercase">Cashier</p>
-            <div className="space-y-1">
-              {cart.map((item) => (
-                <div key={item.menuItemId} className="flex justify-between text-sm text-white">
-                  <span>
-                    {item.name} × {item.quantity}
-                  </span>
-                  <span className="tabular-nums">
-                    ¥{(item.price * item.quantity).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-              <div className="border-t border-stone-700 mt-1.5 pt-1.5 flex justify-between items-baseline">
-                <span className="text-stone-400 text-sm">合計</span>
-                <span className="text-6xl font-black text-white tabular-nums">
-                  ¥{totalPrice.toLocaleString()}
-                </span>
+        <div className="fixed inset-0 z-40 flex flex-col bg-stone-100">
+          <header className="shrink-0 bg-stone-900 px-4 py-4 text-white">
+            <div className="mx-auto flex max-w-lg items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-stone-800 hover:text-white"
+                onClick={() => {
+                  setIsFree(false);
+                  setPhase("menu");
+                }}
+                aria-label="商品選択に戻る"
+              >
+                <ArrowLeft className="size-5" />
+              </Button>
+              <div>
+                <h2 className="text-lg font-bold">注文内容の確認</h2>
+                <p className="text-xs text-stone-400">内容と金額を確認して会計を確定します</p>
               </div>
             </div>
+          </header>
+
+          <main className="mx-auto w-full max-w-lg min-h-0 flex-1 overflow-y-auto px-4 py-5">
+            <div className="space-y-3">
+              {cart.map((item) => (
+                <div key={item.menuItemId} className="rounded-2xl bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-bold text-stone-900">{item.name}</p>
+                      <p className="mt-1 text-sm text-stone-500 tabular-nums">
+                        ¥{item.price.toLocaleString()} × {item.quantity}
+                      </p>
+                    </div>
+                    <p className="text-lg font-black text-stone-900 tabular-nums">
+                      ¥{(item.price * item.quantity).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
             {actionData && "error" in actionData && (
-              <p className="text-sm text-red-400 text-center">{actionData.error}</p>
-            )}
-            {isFree && (
-              <p className="text-sky-400 text-xs text-center font-bold tracking-widest">
-                ** 無料サービス **
+              <p className="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
+                {actionData.error}
               </p>
             )}
-            <Form method="post" onSubmit={handlePrintSubmit}>
-              <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
-              <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
-              <Button
-                type="submit"
-                className={`w-full h-14 text-2xl font-black text-white border-0 rounded-2xl ${
-                  isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
-                }`}
-                disabled={isSubmitting || printerStatusData?.isPrinting}
-              >
-                {isSubmitting
-                  ? "処理中..."
-                  : printerStatusData?.isPrinting
-                    ? "印刷中..."
-                    : isFree
-                      ? "無料で確定する"
-                      : "会計を確定する"}
-              </Button>
-            </Form>
-            {isAutoPrintEnabled && (
-              <p className="text-[10px] text-stone-600 text-center">
-                ※プリンター未接続時は会計確定時に接続ダイアログが表示されます
-              </p>
-            )}
-            <button
-              type="button"
-              className="text-stone-600 text-sm text-center py-0.5"
-              onClick={() => {
-                setIsFree(false);
-                setPhase("menu");
-              }}
-            >
-              キャンセル
-            </button>
-          </div>
+          </main>
 
-          {/* 区切り線 */}
-          <div className="h-1 bg-stone-300 shrink-0" />
-
-          {/* 下部: お客様向け（正位）*/}
-          <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-stone-50 p-8">
-            {isFree ? (
-              <>
-                <p className="text-2xl font-bold text-stone-700 tracking-wide">無料サービスです</p>
-                <p className="text-8xl font-black text-sky-600 leading-none">FREE</p>
-              </>
-            ) : (
-              <>
-                <p className="text-2xl font-bold text-stone-700 tracking-wide">
-                  現金でお支払いください
-                </p>
-                <p className="text-8xl font-black text-stone-900 tabular-nums leading-none">
+          <div className="shrink-0 border-t border-stone-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+            <div className="mx-auto max-w-lg space-y-3">
+              <div className="flex items-end justify-between">
+                <div>
+                  <p className="text-sm text-stone-500">{totalItems}点の合計</p>
+                  {isFree && <p className="text-sm font-bold text-sky-600">無料サービス</p>}
+                </div>
+                <p className="text-4xl font-black text-stone-900 tabular-nums">
                   ¥{totalPrice.toLocaleString()}
                 </p>
-              </>
-            )}
+              </div>
+              <Form method="post" onSubmit={handlePrintSubmit}>
+                <input type="hidden" name="cartJson" value={JSON.stringify(cart)} />
+                <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
+                <Button
+                  type="submit"
+                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${confirmButtonBgColor}`}
+                  disabled={isConfirmButtonDisabled}
+                >
+                  {getConfirmButtonText()}
+                </Button>
+              </Form>
+              {isAutoPrintEnabled && (
+                <p className="text-xs text-stone-500 text-center">
+                  ※プリンター未接続時は会計確定時に接続ダイアログが表示されます
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-stone-500"
+                onClick={() => {
+                  setIsFree(false);
+                  setPhase("menu");
+                }}
+              >
+                商品選択に戻る
+              </Button>
+            </div>
           </div>
         </div>
       )}
