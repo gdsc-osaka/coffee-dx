@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Form, useActionData, useNavigate, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
-import { MenuItemCard } from "~/_customer/components/MenuItemCard";
-import { cartJsonSchema } from "~/_customer/schemas";
+import { MenuItemCard } from "~/components/MenuItemCard";
+import { cartJsonSchema } from "~/features/order/schemas";
 import {
   createMobileOrderRequest,
   getMobileOrderAcceptance,
