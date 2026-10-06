@@ -1,4 +1,5 @@
-import { AlertCircle, Battery, BatteryLow, Bluetooth, History, Settings } from "lucide-react";
+import { AlertCircle, Battery, BatteryLow, Bluetooth, History, Package, Settings } from "lucide-react";
+import { Link } from "react-router";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import type { PrinterStatus } from "lx-printer/lx-d02";
 
@@ -18,9 +19,7 @@ export function CashierHeader({
   return (
     <div className="shrink-0 flex flex-col bg-stone-950 p-2 gap-1 border-b border-stone-800">
       <div className="max-w-lg mx-auto w-full flex items-center justify-between px-2">
-        <p className="text-stone-600 text-[10px] tracking-widest uppercase font-bold">
-          Staff Order
-        </p>
+        <p className="text-stone-600 text-[10px] tracking-widest uppercase font-bold">注文管理</p>
         <div className="flex items-center gap-2 text-[10px] text-stone-500">
           {printerStatus === "connected" && printerStatusData && (
             <div className="flex items-center gap-1">
@@ -66,6 +65,13 @@ export function CashierHeader({
           >
             <History className="size-3 text-stone-400" />
           </button>
+          <Link
+            to="/order/menu-items"
+            aria-label="商品登録を開く"
+            className="p-1 hover:bg-stone-800 rounded transition-colors"
+          >
+            <Package className="size-3 text-stone-400" />
+          </Link>
           <button
             type="button"
             onClick={onOpenSettings}

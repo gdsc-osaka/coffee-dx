@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useActionData, useNavigation } from "react-router";
+import { Link, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
@@ -475,7 +475,13 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
             <h1 className="text-base font-bold text-stone-800 leading-tight">会計係</h1>
             <p className="text-xs text-stone-400 mt-0.5">受け渡し管理</p>
           </div>
-          <div className="ml-auto flex items-center gap-2 text-xs">
+          <div className="ml-auto flex items-center gap-3 text-xs">
+            <Link
+              to="/order/menu-items"
+              className="rounded-lg border border-stone-200 px-3 py-1.5 font-bold text-stone-600 hover:bg-stone-50"
+            >
+              商品登録
+            </Link>
             <span className="flex items-center gap-1.5 text-stone-400">
               <span
                 className={
