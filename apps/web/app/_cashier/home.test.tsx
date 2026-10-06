@@ -11,6 +11,15 @@ vi.mock("react-router", () => ({
   Form: ({ children, ...props }: React.ComponentProps<"form">) => (
     <form {...props}>{children}</form>
   ),
+  Link: ({
+    children,
+    to,
+    ...props
+  }: React.ComponentProps<"a"> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
   useActionData: useActionDataMock,
   useNavigation: useNavigationMock,
 }));

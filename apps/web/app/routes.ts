@@ -14,7 +14,6 @@ export default [
   route("order/mobile-checkout", "_cashier/mobile-order-checkout.tsx"),
   // 商品登録ページ（issue #51）。mobile-checkout と同じく /order 配下に置く。
   route("order/menu-items", "_cashier/menu-items.tsx"),
-  index("_root-redirect.tsx"),
 
   // ドリップ係画面（loaderで認証ガード）
   layout("_drip.tsx", [...prefix("drip", [index("_drip/home.tsx")])]),
