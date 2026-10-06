@@ -91,7 +91,7 @@ export async function action({ request, context }: Route.ActionArgs) {
 
 type Phase = "menu" | "confirm" | "complete";
 
-export default function CustomerHome({ loaderData }: Route.ComponentProps) {
+export default function OrderHome({ loaderData }: Route.ComponentProps) {
   const { items } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -229,6 +229,16 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
   const totalItems = cart.reduce((sum, c) => sum + c.quantity, 0);
   const totalPrice = cart.reduce((sum, c) => sum + c.unitPriceAtOrder * c.quantity, 0);
   const adjustedLines = cart.filter((line) => line.unitPriceAtOrder !== line.basePrice);
+  const confirmButtonBgColor = isFree
+    ? "bg-sky-600 hover:bg-sky-500"
+    : "bg-emerald-600 hover:bg-emerald-500";
+  const isConfirmButtonDisabled = isSubmitting || Boolean(printerStatusData?.isPrinting);
+
+  const getConfirmButtonText = () => {
+    if (isSubmitting) return "処理中...";
+    if (printerStatusData?.isPrinting) return "印刷中...";
+    return isFree ? "無料で確定する" : "支払いを確定する";
+  };
 
   const handleCloseDialog = () => {
     if (phase === "complete") {
@@ -426,7 +436,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             </div>
           </header>
 
-          <main className="mx-auto w-full max-w-lg flex-1 overflow-y-auto px-4 py-5 pb-56">
+          <main className="mx-auto w-full max-w-lg min-h-0 flex-1 overflow-y-auto px-4 py-5">
             <div className="space-y-3">
               {cart.map((item) => (
                 <div key={item.id} className="rounded-2xl bg-white p-4 shadow-sm">
@@ -449,7 +459,6 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                 </div>
               ))}
             </div>
-
             {actionData && "error" in actionData && (
               <p className="mt-4 rounded-xl bg-red-50 p-3 text-center text-sm text-red-700">
                 {actionData.error}
@@ -457,7 +466,7 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
             )}
           </main>
 
-          <div className="fixed inset-x-0 bottom-0 border-t border-stone-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
+          <div className="shrink-0 border-t border-stone-200 bg-white p-4 shadow-[0_-8px_24px_rgba(0,0,0,0.08)]">
             <div className="mx-auto max-w-lg space-y-3">
               <div className="flex items-end justify-between">
                 <div>
@@ -483,30 +492,27 @@ export default function CustomerHome({ loaderData }: Route.ComponentProps) {
                 <input type="hidden" name="isFree" value={isFree ? "1" : "0"} />
                 <Button
                   type="submit"
-                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${
-                    isFree ? "bg-sky-600 hover:bg-sky-500" : "bg-emerald-600 hover:bg-emerald-500"
-                  }`}
-                  disabled={isSubmitting || printerStatusData?.isPrinting}
+                  className={`w-full h-16 text-xl font-black text-white border-0 rounded-2xl ${confirmButtonBgColor}`}
+                  disabled={isConfirmButtonDisabled}
                 >
-                  {isSubmitting
-                    ? "処理中..."
-                    : printerStatusData?.isPrinting
-                      ? "印刷中..."
-                      : isFree
-                        ? "無料で確定する"
-                        : "支払いを確定する"}
+                  {getConfirmButtonText()}
                 </Button>
               </Form>
+              {isAutoPrintEnabled && (
+                <p className="text-xs text-stone-500 text-center">
+                  ※プリンター未接続時は会計確定時に接続ダイアログが表示されます
+                </p>
+              )}
               <Button
                 type="button"
                 variant="ghost"
-                className="h-10 w-full text-stone-500"
+                className="w-full text-stone-500"
                 onClick={() => {
                   setIsFree(false);
                   setPhase("menu");
                 }}
               >
-                キャンセル
+                商品選択に戻る
               </Button>
             </div>
           </div>
