@@ -9,6 +9,7 @@ import {
 } from "../features/brew-queue/queue";
 import { createDb } from "../lib/db";
 import { getJstNowString } from "../lib/datetime";
+import { getBusinessDate } from "../lib/order-do";
 
 /** 次枠キューと対象メニュー ID を保存する DO storage のキー（DO は業務日ごとなので日付は含めない） */
 const QUEUE_STORAGE_KEY = "brewQueue";
@@ -158,7 +159,13 @@ export class OrderDurableObject implements DurableObject {
         case "cancel":
           return this.transitionStatus(orderId, "cancelled", ["pending", "brewing", "ready"]);
         case "close":
-          return this.transitionStatus(orderId, "completed", ["ready"]);
+          // 過去日のやり残し注文は、抽出の紐付けをせずに提供したものも完了にできるよう
+          // pending/brewing からの完了を許す。当日は受け取り可能 (ready) な注文だけ（DX-49）。
+          return this.transitionStatus(
+            orderId,
+            "completed",
+            this.isPastBusinessDate() ? ["pending", "brewing", "ready"] : ["ready"],
+          );
       }
     }
 
@@ -1009,6 +1016,11 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
   // 共通: 注文ステータス遷移（DB + インメモリ + broadcast）
   // ---------------------------------------------------------------------------
+
+  /** この DO の営業日が今日 (JST) より前か。eventId は YYYY-MM-DD なので文字列比較で判定できる。 */
+  private isPastBusinessDate(): boolean {
+    return this.eventId !== null && this.eventId < getBusinessDate();
+  }
 
   private async transitionStatus(
     orderId: string,

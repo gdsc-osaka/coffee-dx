@@ -111,7 +111,6 @@ export function LeftoverOrdersBanner() {
 
             {orders.map((order) => {
               const isThisOrderSubmitting = isSubmitting && submittingOrderId === order.id;
-              const canClose = order.status === "ready";
               return (
                 <div
                   key={order.id}
@@ -142,20 +141,19 @@ export function LeftoverOrdersBanner() {
                   </ul>
 
                   <div className="flex gap-2">
-                    {canClose && (
-                      <fetcher.Form method="post" action="/cashier?index" className="flex-1">
-                        <input type="hidden" name="intent" value="complete" />
-                        <input type="hidden" name="orderId" value={order.id} />
-                        <input type="hidden" name="eventId" value={order.businessDate} />
-                        <Button type="submit" size="sm" disabled={isSubmitting} className="w-full">
-                          {isThisOrderSubmitting && submittingIntent !== "cancel" ? (
-                            <Loader2 className="size-3 animate-spin" />
-                          ) : (
-                            "完了"
-                          )}
-                        </Button>
-                      </fetcher.Form>
-                    )}
+                    {/* 過去日の注文は抽出の紐付けをせずに提供したこともあるため、状態にかかわらず完了にできる */}
+                    <fetcher.Form method="post" action="/cashier?index" className="flex-1">
+                      <input type="hidden" name="intent" value="complete" />
+                      <input type="hidden" name="orderId" value={order.id} />
+                      <input type="hidden" name="eventId" value={order.businessDate} />
+                      <Button type="submit" size="sm" disabled={isSubmitting} className="w-full">
+                        {isThisOrderSubmitting && submittingIntent !== "cancel" ? (
+                          <Loader2 className="size-3 animate-spin" />
+                        ) : (
+                          "完了"
+                        )}
+                      </Button>
+                    </fetcher.Form>
                     <fetcher.Form method="post" action="/cashier?index" className="flex-1">
                       <input type="hidden" name="intent" value="cancel" />
                       <input type="hidden" name="orderId" value={order.id} />
