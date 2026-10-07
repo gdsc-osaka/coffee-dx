@@ -11,6 +11,8 @@ type HistoryItem = {
   id: string;
   menuItemId: string;
   name: string;
+  unitPriceAtOrder: number;
+  fulfillmentTypeAtOrder: "brew" | "direct";
   quantity: number;
 };
 
@@ -135,7 +137,11 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
       }
       const canvas = await receiptGenerator.generate({
         orderNumber: order.orderNumber,
-        items: order.items.map((i) => ({ name: i.name, quantity: i.quantity })),
+        items: order.items.map((i) => ({
+          name: i.name,
+          unitPriceAtOrder: i.unitPriceAtOrder,
+          quantity: i.quantity,
+        })),
         timestamp: new Date(order.createdAt),
         isFree: order.isFree,
       });
@@ -188,17 +194,34 @@ export function OrderHistoryDialog({ open, onOpenChange }: OrderHistoryDialogPro
                   </span>
                 </div>
               </div>
-              <ul className="space-y-0.5">
+              <ul className="space-y-1">
                 {order.items.map((item) => (
                   <li
                     key={item.id}
                     className="flex justify-between text-xs text-stone-300 tabular-nums"
                   >
-                    <span className="truncate pr-2">{item.name}</span>
-                    <span className="text-stone-500 shrink-0">×{item.quantity}</span>
+                    <span className="truncate pr-2">
+                      {item.name}
+                      {item.fulfillmentTypeAtOrder === "direct" && (
+                        <span className="ml-1 text-[10px] text-sky-400">物販</span>
+                      )}
+                    </span>
+                    <span className="text-stone-400 shrink-0">
+                      ¥{item.unitPriceAtOrder.toLocaleString()} × {item.quantity} = ¥
+                      {(item.unitPriceAtOrder * item.quantity).toLocaleString()}
+                    </span>
                   </li>
                 ))}
               </ul>
+              <div className="flex justify-between border-t border-stone-700 pt-2 text-sm font-bold">
+                <span>合計</span>
+                <span className="tabular-nums">
+                  ¥
+                  {order.items
+                    .reduce((sum, item) => sum + item.unitPriceAtOrder * item.quantity, 0)
+                    .toLocaleString()}
+                </span>
+              </div>
               <Button
                 type="button"
                 variant="outline"

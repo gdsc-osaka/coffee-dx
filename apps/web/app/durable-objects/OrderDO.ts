@@ -19,6 +19,8 @@ type OrderItemData = {
   id: string;
   orderId: string;
   menuItemId: string;
+  /** 旧イベントの payload では未指定。 */
+  unitPriceAtOrder?: number;
   quantity: number;
   /** 旧イベントの payload では未指定のため、未指定は brew として扱う。 */
   fulfillmentTypeAtOrder?: "brew" | "direct";
@@ -238,6 +240,7 @@ export class OrderDurableObject implements DurableObject {
             id: item.id,
             orderId: item.orderId,
             menuItemId: item.menuItemId,
+            unitPriceAtOrder: item.unitPriceAtOrder,
             quantity: item.quantity,
             fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
             createdAt: item.createdAt,

@@ -10,6 +10,8 @@ type CashierOrderItem = {
   id: string;
   orderId: string;
   menuItemId: string;
+  unitPriceAtOrder?: number;
+  fulfillmentTypeAtOrder?: "brew" | "direct";
   quantity: number;
   name?: string;
   createdAt: string;
@@ -375,6 +377,16 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       let hasBrewing = false;
 
       for (const item of order.items) {
+        if (item.fulfillmentTypeAtOrder === "direct") {
+          virtualItems.push({
+            ...item,
+            readyCount: item.quantity,
+            brewingCount: 0,
+            pendingCount: 0,
+          });
+          continue;
+        }
+
         // 実際に紐付いている ready な杯数
         const readyCount = units.filter(
           (u) => u.orderItemId === item.id && u.status === "ready",
@@ -518,6 +530,8 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                         items={order.items.map((item) => ({
                           id: item.id,
                           name: item.name,
+                          unitPriceAtOrder: item.unitPriceAtOrder,
+                          fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
                           quantity: item.quantity,
                           readyCount: item.readyCount,
                           brewingCount: item.brewingCount,
@@ -580,6 +594,8 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                         items={order.items.map((item) => ({
                           id: item.id,
                           name: item.name,
+                          unitPriceAtOrder: item.unitPriceAtOrder,
+                          fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
                           quantity: item.quantity,
                           readyCount: item.readyCount,
                           brewingCount: item.brewingCount,
@@ -628,6 +644,8 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
                         items={order.items.map((item) => ({
                           id: item.id,
                           name: item.name,
+                          unitPriceAtOrder: item.unitPriceAtOrder,
+                          fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
                           quantity: item.quantity,
                           readyCount: item.readyCount,
                           brewingCount: item.brewingCount,

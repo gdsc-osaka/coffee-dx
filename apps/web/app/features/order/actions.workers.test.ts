@@ -107,6 +107,38 @@ describe("createOrder", () => {
     expect(orderDoFetch).not.toHaveBeenCalled();
   });
 
+  it("brewとdirectの混在注文はpendingで保存し、両明細の提供種別をDOへ送る", async () => {
+    const d1Db = createDb(env.DB);
+
+    const { orderId } = await createOrder(d1Db, mockEnv, [
+      { menuItemId: "menu-1", unitPriceAtOrder: 300, quantity: 1 },
+      { menuItemId: "retail-1", unitPriceAtOrder: 150, quantity: 2 },
+    ]);
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    const savedItems = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    expect(order.status).toBe("pending");
+    expect(savedItems.map((item) => item.fulfillmentTypeAtOrder).sort()).toEqual([
+      "brew",
+      "direct",
+    ]);
+    expect(orderDoFetch).toHaveBeenCalledOnce();
+
+    const request = orderDoFetch.mock.calls[0][0] as Request;
+    const payload = (await request.json()) as {
+      items: Array<{ unitPriceAtOrder: number; fulfillmentTypeAtOrder: string }>;
+    };
+    expect(
+      payload.items.map((item) => ({
+        unitPriceAtOrder: item.unitPriceAtOrder,
+        fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
+      })),
+    ).toEqual([
+      { unitPriceAtOrder: 300, fulfillmentTypeAtOrder: "brew" },
+      { unitPriceAtOrder: 150, fulfillmentTypeAtOrder: "direct" },
+    ]);
+  });
+
   it("存在しない商品が含まれる場合は注文全体を保存せず、注文番号も進めない", async () => {
     const d1Db = createDb(env.DB);
 

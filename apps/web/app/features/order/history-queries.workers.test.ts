@@ -21,7 +21,13 @@ async function seedOrder(
     createdAt: string;
     status?: "pending" | "brewing" | "ready" | "completed" | "cancelled";
     isFree?: boolean;
-    items?: Array<{ id: string; menuItemId: string; quantity: number }>;
+    items?: Array<{
+      id: string;
+      menuItemId: string;
+      unitPriceAtOrder?: number;
+      fulfillmentTypeAtOrder?: "brew" | "direct";
+      quantity: number;
+    }>;
   },
 ) {
   await db.insert(orders).values({
@@ -39,8 +45,8 @@ async function seedOrder(
         id: it.id,
         orderId: options.id,
         menuItemId: it.menuItemId,
-        unitPriceAtOrder: 100,
-        fulfillmentTypeAtOrder: "brew",
+        unitPriceAtOrder: it.unitPriceAtOrder ?? 100,
+        fulfillmentTypeAtOrder: it.fulfillmentTypeAtOrder ?? "brew",
         quantity: it.quantity,
         createdAt: options.createdAt,
         updatedAt: options.createdAt,
@@ -96,6 +102,49 @@ describe("getRecentOrders", () => {
     expect(result.orders[1].items[0]).toMatchObject({ name: "ブレンドコーヒー", quantity: 2 });
     expect(result.orders[0].createdAt).toBeInstanceOf(Date);
     expect(result.nextCursor).toBeNull();
+  });
+
+  it("注文時単価と提供種別を明細ごとに返す", async () => {
+    await seedOrder(db, {
+      id: "o-priced",
+      orderNumber: 3,
+      createdAt: "2026-04-26 10:00:00",
+      items: [
+        {
+          id: "i-regular",
+          menuItemId: "menu-1",
+          unitPriceAtOrder: 400,
+          quantity: 1,
+        },
+        {
+          id: "i-discounted",
+          menuItemId: "menu-1",
+          unitPriceAtOrder: 300,
+          quantity: 1,
+        },
+        {
+          id: "i-direct",
+          menuItemId: "menu-2",
+          unitPriceAtOrder: 250,
+          fulfillmentTypeAtOrder: "direct",
+          quantity: 2,
+        },
+      ],
+    });
+
+    const result = await getRecentOrders(d1Db, { limit: 10 });
+
+    expect(
+      result.orders[0].items.map((item) => ({
+        unitPriceAtOrder: item.unitPriceAtOrder,
+        fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
+        quantity: item.quantity,
+      })),
+    ).toEqual([
+      { unitPriceAtOrder: 250, fulfillmentTypeAtOrder: "direct", quantity: 2 },
+      { unitPriceAtOrder: 300, fulfillmentTypeAtOrder: "brew", quantity: 1 },
+      { unitPriceAtOrder: 400, fulfillmentTypeAtOrder: "brew", quantity: 1 },
+    ]);
   });
 
   it("limit を超える場合は nextCursor を返し、cursor で次ページが続けて取得できる", async () => {
