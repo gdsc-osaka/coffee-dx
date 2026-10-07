@@ -23,7 +23,7 @@ describe("menu item registration", () => {
   });
 
   it("商品を登録すると、金額と区分(fulfillmentType)が保存され、デフォルトで販売中になる", async () => {
-    const created = await createMenuItem(env.DB, {
+    const created = await createMenuItem(db, {
       name: "ブレンドコーヒー",
       price: 400,
       fulfillmentType: "brew",
@@ -42,7 +42,7 @@ describe("menu item registration", () => {
   });
 
   it("登録した商品は、注文画面が参照する一覧（getAvailableMenuItems）にも反映される", async () => {
-    await createMenuItem(env.DB, { name: "焼き菓子", price: 300, fulfillmentType: "direct" });
+    await createMenuItem(db, { name: "焼き菓子", price: 300, fulfillmentType: "direct" });
 
     const available = await getAvailableMenuItems(db);
     expect(available.map((item) => item.name)).toContain("焼き菓子");
@@ -50,19 +50,19 @@ describe("menu item registration", () => {
 
   it("商品名が空なら登録できない", async () => {
     await expect(
-      createMenuItem(env.DB, { name: "", price: 300, fulfillmentType: "brew" }),
+      createMenuItem(db, { name: "", price: 300, fulfillmentType: "brew" }),
     ).rejects.toBeInstanceOf(MenuItemValidationError);
   });
 
   it("金額が0以下なら登録できない", async () => {
     await expect(
-      createMenuItem(env.DB, { name: "テスト", price: 0, fulfillmentType: "brew" }),
+      createMenuItem(db, { name: "テスト", price: 0, fulfillmentType: "brew" }),
     ).rejects.toBeInstanceOf(MenuItemValidationError);
   });
 
   it("区分がbrew/direct以外なら登録できない", async () => {
     await expect(
-      createMenuItem(env.DB, {
+      createMenuItem(db, {
         name: "テスト",
         price: 300,
         // @ts-expect-error 不正な値を意図的に渡す
@@ -72,13 +72,13 @@ describe("menu item registration", () => {
   });
 
   it("販売停止に切り替えると、以後は注文画面の一覧から外れる", async () => {
-    const created = await createMenuItem(env.DB, {
+    const created = await createMenuItem(db, {
       name: "季節限定ラテ",
       price: 450,
       fulfillmentType: "brew",
     });
 
-    await setMenuItemAvailability(env.DB, created.id, false);
+    await setMenuItemAvailability(db, created.id, false);
 
     const available = await getAvailableMenuItems(db);
     expect(available.map((item) => item.id)).not.toContain(created.id);
@@ -88,7 +88,7 @@ describe("menu item registration", () => {
   });
 
   it("存在しない商品の販売状態は変更できない", async () => {
-    await expect(setMenuItemAvailability(env.DB, "not-found-id", true)).rejects.toBeInstanceOf(
+    await expect(setMenuItemAvailability(db, "not-found-id", true)).rejects.toBeInstanceOf(
       MenuItemValidationError,
     );
   });

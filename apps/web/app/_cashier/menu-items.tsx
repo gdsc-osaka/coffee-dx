@@ -38,7 +38,11 @@ export async function action({ request, context }: Route.ActionArgs) {
       return { ok: false as const, error: "操作内容が不正です。" };
     }
     try {
-      await setMenuItemAvailability(context.cloudflare.env.DB, menuItemId, nextAvailable === "1");
+      await setMenuItemAvailability(
+        createDb(context.cloudflare.env.DB),
+        menuItemId,
+        nextAvailable === "1",
+      );
       return { ok: true as const, kind: "toggle" as const };
     } catch (error) {
       if (error instanceof MenuItemValidationError) {
@@ -63,7 +67,7 @@ export async function action({ request, context }: Route.ActionArgs) {
   }
 
   try {
-    await createMenuItem(context.cloudflare.env.DB, {
+    await createMenuItem(createDb(context.cloudflare.env.DB), {
       name,
       price,
       fulfillmentType: fulfillmentType as MenuItemFulfillmentType,

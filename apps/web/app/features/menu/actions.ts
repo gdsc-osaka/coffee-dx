@@ -1,3 +1,10 @@
+import { eq } from "drizzle-orm";
+import { menuItems } from "../../../db/schema";
+import { getJstNowString } from "../../lib/datetime";
+import { createDb } from "../../lib/db";
+
+type Db = ReturnType<typeof createDb>;
+
 export type MenuItemFulfillmentType = "brew" | "direct";
 
 export type MenuItem = {
@@ -48,35 +55,20 @@ function assertValidInput(input: CreateMenuItemInput): void {
  * 作成した商品は isAvailable = true（既定値）になるため、
  * 保存直後から order 画面・モバイルオーダーの両方に反映される。
  */
-export async function createMenuItem(
-  d1: D1Database,
-  input: CreateMenuItemInput,
-): Promise<MenuItem> {
+export async function createMenuItem(db: Db, input: CreateMenuItemInput): Promise<MenuItem> {
   assertValidInput(input);
 
-  const id = crypto.randomUUID();
-  await d1
-    .prepare(
-      `INSERT INTO menu_items (id, name, price, fulfillment_type, description, is_available)
-       VALUES (?, ?, ?, ?, ?, 1)`,
-    )
-    .bind(
-      id,
-      input.name.trim(),
-      input.price,
-      input.fulfillmentType,
-      input.description?.trim() || null,
-    )
-    .run();
-
-  return {
-    id,
+  const item: MenuItem = {
+    id: crypto.randomUUID(),
     name: input.name.trim(),
     price: input.price,
     fulfillmentType: input.fulfillmentType,
     description: input.description?.trim() || null,
     isAvailable: true,
   };
+  await db.insert(menuItems).values({ ...item, isAvailable: 1 });
+
+  return item;
 }
 
 /**
@@ -84,18 +76,16 @@ export async function createMenuItem(
  * order画面・モバイルオーダーの両方で、この値を見て表示/非表示を判断する。
  */
 export async function setMenuItemAvailability(
-  d1: D1Database,
+  db: Db,
   menuItemId: string,
   isAvailable: boolean,
 ): Promise<void> {
-  const result = await d1
-    .prepare(
-      `UPDATE menu_items SET is_available = ?, updated_at = datetime('now', '+9 hours')
-       WHERE id = ?`,
-    )
-    .bind(isAvailable ? 1 : 0, menuItemId)
-    .run();
-  if (result.meta?.changes === 0) {
+  const updated = await db
+    .update(menuItems)
+    .set({ isAvailable: isAvailable ? 1 : 0, updatedAt: getJstNowString() })
+    .where(eq(menuItems.id, menuItemId))
+    .returning({ id: menuItems.id });
+  if (updated.length === 0) {
     throw new MenuItemValidationError("指定された商品が見つかりません。");
   }
 }
