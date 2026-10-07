@@ -9,8 +9,6 @@ export type HistoryOrderItem = {
   id: string;
   menuItemId: string;
   name: string;
-  unitPriceAtOrder: number;
-  fulfillmentTypeAtOrder: "brew" | "direct";
   quantity: number;
 };
 
@@ -90,8 +88,6 @@ export async function getRecentOrders(
       id: it.id,
       menuItemId: it.menuItemId,
       name: menuNameById.get(it.menuItemId) ?? "(削除済み)",
-      unitPriceAtOrder: it.unitPriceAtOrder,
-      fulfillmentTypeAtOrder: it.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
       quantity: it.quantity,
     });
     itemsByOrderId.set(it.orderId, list);

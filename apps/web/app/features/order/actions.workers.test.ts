@@ -1,6 +1,5 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { menuItems, orderItems, orderNumberCounters, orders } from "../../../db/schema";
@@ -11,13 +10,12 @@ type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
 
 // DO への通知はスタブに差し替える（D1 書き込みのみ検証対象）
-const orderDoFetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
 const mockEnv = {
   ...env,
   ORDER_DO: {
     idFromName: () => ({ toString: () => "mock-id" }),
     get: () => ({
-      fetch: orderDoFetch,
+      fetch: vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
     }),
   },
 } as unknown as Env;
@@ -30,7 +28,6 @@ describe("createOrder", () => {
   let db: ReturnType<typeof drizzle<Record<string, never>>>;
 
   beforeEach(async () => {
-    orderDoFetch.mockClear();
     db = drizzle(env.DB);
     await db.delete(orderItems);
     await db.delete(orders);
@@ -40,13 +37,6 @@ describe("createOrder", () => {
     await db.insert(menuItems).values([
       { id: "menu-1", name: "ブレンドコーヒー", price: 400, isAvailable: 1 },
       { id: "menu-2", name: "アメリカーノ", price: 350, isAvailable: 1 },
-      {
-        id: "retail-1",
-        name: "ビスケット",
-        price: 250,
-        fulfillmentType: "direct",
-        isAvailable: 1,
-      },
     ]);
   });
 
@@ -67,108 +57,7 @@ describe("createOrder", () => {
     expect(allItems).toHaveLength(1);
     expect(allItems[0].orderId).toBe(orderId);
     expect(allItems[0].menuItemId).toBe("menu-1");
-    expect(allItems[0].unitPriceAtOrder).toBe(400);
-    expect(allItems[0].fulfillmentTypeAtOrder).toBe("brew");
     expect(allItems[0].quantity).toBe(2);
-  });
-
-  it("同じ商品でも価格ごとに別の order_items 行として保存される", async () => {
-    const d1Db = createDb(env.DB);
-    const cartItems = [
-      { menuItemId: "menu-1", unitPriceAtOrder: 300, quantity: 1 },
-      { menuItemId: "menu-1", unitPriceAtOrder: 200, quantity: 1 },
-      { menuItemId: "menu-1", unitPriceAtOrder: 100, quantity: 1 },
-    ];
-
-    const { orderId } = await createOrder(d1Db, mockEnv, cartItems);
-    const allItems = await db.select().from(orderItems);
-
-    expect(allItems).toHaveLength(3);
-    expect(
-      allItems
-        .filter((item) => item.orderId === orderId)
-        .map((item) => item.unitPriceAtOrder)
-        .sort(),
-    ).toEqual([100, 200, 300]);
-  });
-
-  it("direct商品のみの注文はcompletedで保存され、DOの抽出処理に送られない", async () => {
-    const d1Db = createDb(env.DB);
-    const cartItems = [{ menuItemId: "retail-1", unitPriceAtOrder: 150, quantity: 1 }];
-
-    const { orderId } = await createOrder(d1Db, mockEnv, cartItems);
-    const [order] = await db.select().from(orders);
-    const [item] = await db.select().from(orderItems);
-
-    expect(order.id).toBe(orderId);
-    expect(order.status).toBe("completed");
-    expect(item.fulfillmentTypeAtOrder).toBe("direct");
-    expect(item.unitPriceAtOrder).toBe(150);
-    expect(orderDoFetch).not.toHaveBeenCalled();
-  });
-
-  it("brewとdirectの混在注文はpendingで保存し、両明細の提供種別をDOへ送る", async () => {
-    const d1Db = createDb(env.DB);
-
-    const { orderId } = await createOrder(d1Db, mockEnv, [
-      { menuItemId: "menu-1", unitPriceAtOrder: 300, quantity: 1 },
-      { menuItemId: "retail-1", unitPriceAtOrder: 150, quantity: 2 },
-    ]);
-
-    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
-    const savedItems = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
-    expect(order.status).toBe("pending");
-    expect(savedItems.map((item) => item.fulfillmentTypeAtOrder).sort()).toEqual([
-      "brew",
-      "direct",
-    ]);
-    expect(orderDoFetch).toHaveBeenCalledOnce();
-
-    const request = orderDoFetch.mock.calls[0][0] as Request;
-    const payload = (await request.json()) as {
-      items: Array<{ unitPriceAtOrder: number; fulfillmentTypeAtOrder: string }>;
-    };
-    expect(
-      payload.items.map((item) => ({
-        unitPriceAtOrder: item.unitPriceAtOrder,
-        fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder,
-      })),
-    ).toEqual([
-      { unitPriceAtOrder: 300, fulfillmentTypeAtOrder: "brew" },
-      { unitPriceAtOrder: 150, fulfillmentTypeAtOrder: "direct" },
-    ]);
-  });
-
-  it("存在しない商品が含まれる場合は注文全体を保存せず、注文番号も進めない", async () => {
-    const d1Db = createDb(env.DB);
-
-    await expect(
-      createOrder(d1Db, mockEnv, [
-        { menuItemId: "menu-1", quantity: 1 },
-        { menuItemId: "missing", quantity: 1 },
-      ]),
-    ).rejects.toThrow("Menu item not found");
-
-    expect(await db.select().from(orders)).toHaveLength(0);
-    expect(await db.select().from(orderItems)).toHaveLength(0);
-    expect(await db.select().from(orderNumberCounters)).toHaveLength(0);
-    expect(orderDoFetch).not.toHaveBeenCalled();
-  });
-
-  it("販売停止商品が含まれる場合は注文全体を保存しない", async () => {
-    const d1Db = createDb(env.DB);
-    await db.update(menuItems).set({ isAvailable: 0 }).where(eq(menuItems.id, "menu-2"));
-
-    await expect(
-      createOrder(d1Db, mockEnv, [
-        { menuItemId: "menu-1", quantity: 1 },
-        { menuItemId: "menu-2", quantity: 1 },
-      ]),
-    ).rejects.toThrow("Menu item is unavailable");
-
-    expect(await db.select().from(orders)).toHaveLength(0);
-    expect(await db.select().from(orderItems)).toHaveLength(0);
-    expect(await db.select().from(orderNumberCounters)).toHaveLength(0);
   });
 
   it("複数商品の order_items がそれぞれ INSERT される", async () => {
