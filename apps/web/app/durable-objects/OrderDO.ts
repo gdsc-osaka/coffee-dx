@@ -451,62 +451,67 @@ export class OrderDurableObject implements DurableObject {
         return new Response("Mobile order has no items", { status: 409 });
       }
 
-      const now = getJstNowString();
-      const orderId = crypto.randomUUID();
-      const orderItemIds = itemRows.results.map(() => crypto.randomUUID());
-      const statements: D1PreparedStatement[] = [
-        this.env.DB.prepare(
-          `INSERT INTO orders
-             (id, business_date, order_number, status, is_free, mobile_request_id, created_at, updated_at)
-           SELECT ?, ?, ?, 'pending', 0, ?, ?, ?
-             FROM mobile_order_requests
-            WHERE id = ? AND status = 'awaiting_payment' AND accepted_order_id IS NULL
-              AND business_date = ?
-              AND EXISTS (
-                SELECT 1 FROM mobile_order_request_items WHERE request_id = ?
-              )`,
-        ).bind(
-          orderId,
-          request.businessDate,
-          request.orderNumber,
-          requestId,
-          now,
-          now,
-          requestId,
-          this.eventId,
-          requestId,
-        ),
-      ];
+      // D1が確定したのに応答だけ失われた場合、同じIDで再送するとorder_itemsの主キーが衝突する。
+      // 再試行ごとにIDを作り直し、確定済みなら全文0行で終わらせて下の再読込で結果を確認する。
+      const buildPaymentStatements = (): D1PreparedStatement[] => {
+        const now = getJstNowString();
+        const orderId = crypto.randomUUID();
+        const orderItemIds = itemRows.results.map(() => crypto.randomUUID());
+        const statements: D1PreparedStatement[] = [
+          this.env.DB.prepare(
+            `INSERT INTO orders
+               (id, business_date, order_number, status, is_free, mobile_request_id, created_at, updated_at)
+             SELECT ?, ?, ?, 'pending', 0, ?, ?, ?
+               FROM mobile_order_requests
+              WHERE id = ? AND status = 'awaiting_payment' AND accepted_order_id IS NULL
+                AND business_date = ?
+                AND EXISTS (
+                  SELECT 1 FROM mobile_order_request_items WHERE request_id = ?
+                )`,
+          ).bind(
+            orderId,
+            request.businessDate,
+            request.orderNumber,
+            requestId,
+            now,
+            now,
+            requestId,
+            this.eventId,
+            requestId,
+          ),
+        ];
 
-      for (let i = 0; i < itemRows.results.length; i++) {
-        const item = itemRows.results[i];
+        for (let i = 0; i < itemRows.results.length; i++) {
+          const item = itemRows.results[i];
+          statements.push(
+            this.env.DB.prepare(
+              `INSERT INTO order_items
+                 (id, order_id, menu_item_id, quantity, created_at, updated_at)
+               SELECT ?, ?, menu_item_id, quantity, ?, ?
+                 FROM mobile_order_request_items
+                WHERE id = ? AND request_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
+                  )`,
+            ).bind(orderItemIds[i], orderId, now, now, item.id, requestId, orderId, requestId),
+          );
+        }
+
         statements.push(
           this.env.DB.prepare(
-            `INSERT INTO order_items
-               (id, order_id, menu_item_id, quantity, created_at, updated_at)
-             SELECT ?, ?, menu_item_id, quantity, ?, ?
-               FROM mobile_order_request_items
-              WHERE id = ? AND request_id = ?
+            `UPDATE mobile_order_requests
+                SET status = 'paid', paid_at = ?, accepted_order_id = ?, updated_at = ?
+              WHERE id = ? AND status = 'awaiting_payment' AND business_date = ?
+                AND accepted_order_id IS NULL
                 AND EXISTS (
                   SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
                 )`,
-          ).bind(orderItemIds[i], orderId, now, now, item.id, requestId, orderId, requestId),
+          ).bind(now, orderId, now, requestId, this.eventId, orderId, requestId),
         );
-      }
+        return statements;
+      };
 
-      statements.push(
-        this.env.DB.prepare(
-          `UPDATE mobile_order_requests
-              SET status = 'paid', paid_at = ?, accepted_order_id = ?, updated_at = ?
-            WHERE id = ? AND status = 'awaiting_payment' AND business_date = ?
-              AND accepted_order_id IS NULL
-              AND EXISTS (
-                SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
-              )`,
-        ).bind(now, orderId, now, requestId, this.eventId, orderId, requestId),
-      );
-
-      await this.writeWithRetry(() => this.env.DB.batch(statements));
+      await this.writeWithRetry(() => this.env.DB.batch(buildPaymentStatements()));
 
       const updatedRequest = await this.getMobileOrderRequest(requestId);
       if (!updatedRequest || updatedRequest.status !== "paid" || !updatedRequest.acceptedOrderId) {

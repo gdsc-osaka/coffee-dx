@@ -128,7 +128,7 @@ function readPendingOrder(raw: string): PendingOrder | null {
 }
 
 export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
-  const { items, isAccepting, storeToken } = loaderData;
+  const { items, isAccepting, storeToken, businessDate } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -142,6 +142,18 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
   useEffect(() => {
     let cancelled = false;
 
+    // 取消済み・受取済みなどの注文控えを手放し、QRのメニュー画面から次の注文を始められるようにする。
+    // 別タブで新しい注文が保存されていたら、その値は消さない。
+    const releaseSavedOrder = (savedValue: string) => {
+      try {
+        if (window.localStorage.getItem(storageKey) === savedValue) {
+          window.localStorage.removeItem(storageKey);
+        }
+      } catch {
+        // 保存領域が使えなくても、客向けメニューの表示は続ける。
+      }
+    };
+
     const restoreSavedOrder = async (publicToken: string, savedValue: string) => {
       try {
         const response = await fetch(`/mobile/orders/${publicToken}/status`, {
@@ -149,30 +161,29 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
         });
         if (cancelled) return;
 
+        // 注文が存在しなければ控えも表示できないため、保存値を捨ててメニューに留まる。
+        if (response.status === 404) {
+          releaseSavedOrder(savedValue);
+          return;
+        }
         if (response.ok) {
           const value: unknown = await response.json();
-          const status =
-            value && typeof value === "object" && "status" in value
-              ? (value as { status?: unknown }).status
+          const field = (key: string) =>
+            value && typeof value === "object" && key in value
+              ? (value as Record<string, unknown>)[key]
               : null;
-          const orderStatus =
-            value && typeof value === "object" && "orderStatus" in value
-              ? (value as { orderStatus?: unknown }).orderStatus
-              : null;
+          const status = field("status");
+          const orderStatus = field("orderStatus");
+          const orderBusinessDate = field("businessDate");
           if (
             status === "cancelled" ||
             orderStatus === "cancelled" ||
-            orderStatus === "completed"
+            orderStatus === "completed" ||
+            // 前営業日の注文は当日のスタッフ画面から完了・取消できないことがあるため、
+            // 営業日が変わったら状態にかかわらず手放す。
+            (typeof orderBusinessDate === "string" && orderBusinessDate !== businessDate)
           ) {
-            // 取消済み・受取済みならQRのメニュー画面に留まり、次の注文を始められるようにする。
-            // 別タブで新しい注文が保存されていたら、その値は消さない。
-            try {
-              if (window.localStorage.getItem(storageKey) === savedValue) {
-                window.localStorage.removeItem(storageKey);
-              }
-            } catch {
-              // 保存領域が使えなくても、客向けメニューの表示は続ける。
-            }
+            releaseSavedOrder(savedValue);
             return;
           }
         }
@@ -208,7 +219,7 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     return () => {
       cancelled = true;
     };
-  }, [navigate, storageKey]);
+  }, [businessDate, navigate, storageKey]);
 
   useEffect(() => {
     if (!actionData?.ok) return;

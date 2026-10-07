@@ -159,6 +159,7 @@ describe("OrderDO mobile order payment", () => {
     expect(await getMobileOrderStatusByPublicToken(testEnv.DB, publicToken)).toEqual({
       status: "paid",
       orderStatus: "pending",
+      businessDate: eventId,
     });
 
     await db
@@ -222,6 +223,48 @@ describe("OrderDO mobile order payment", () => {
     } finally {
       ws.close();
     }
+  });
+
+  it("D1確定後に応答だけ失われても、再試行で主キー衝突せず会計を完了する", async () => {
+    const requestId = await createRequest();
+    let batchCalls = 0;
+    await runInDurableObject(getStub(), (instance) => {
+      const target = instance as unknown as { env: Env };
+      const realDb = target.env.DB;
+      // 1回目のbatchはD1へ確定させたうえで、通信断を模して例外にする。
+      const flakyDb = new Proxy(realDb, {
+        get(db, prop) {
+          if (prop === "batch") {
+            return async (statements: D1PreparedStatement[]) => {
+              batchCalls++;
+              const result = await db.batch(statements);
+              if (batchCalls === 1) throw new Error("response lost");
+              return result;
+            };
+          }
+          const value: unknown = Reflect.get(db, prop);
+          return typeof value === "function" ? value.bind(db) : value;
+        },
+      });
+      target.env = { ...target.env, DB: flakyDb };
+    });
+
+    const paid = await post(requestId, "pay");
+    expect(paid.status).toBe(200);
+    const { orderId } = (await paid.json()) as { orderId: string };
+    expect(batchCalls).toBe(2);
+
+    const request = await db
+      .select()
+      .from(mobileOrderRequests)
+      .where(eq(mobileOrderRequests.id, requestId));
+    expect(request[0]).toMatchObject({ status: "paid", acceptedOrderId: orderId });
+    expect(await db.select().from(orders)).toHaveLength(1);
+    expect(await db.select().from(orderItems)).toHaveLength(1);
+    await runInDurableObject(getStub(), (instance) => {
+      const memory = instance as unknown as { orders: Map<string, unknown> };
+      expect(memory.orders.has(orderId)).toBe(true);
+    });
   });
 
   it("会計確定後に注文杯数を抽出提案キューへ追加する", async () => {
@@ -299,6 +342,7 @@ describe("OrderDO mobile order payment", () => {
     expect(await getMobileOrderStatusByPublicToken(testEnv.DB, request[0].publicToken)).toEqual({
       status: "paid",
       orderStatus: "pending",
+      businessDate: eventId,
     });
 
     const started = await getStub().fetch(
@@ -331,6 +375,7 @@ describe("OrderDO mobile order payment", () => {
     expect(await getMobileOrderStatusByPublicToken(testEnv.DB, request[0].publicToken)).toEqual({
       status: "paid",
       orderStatus: "ready",
+      businessDate: eventId,
     });
 
     const served = await getStub().fetch(
@@ -343,6 +388,7 @@ describe("OrderDO mobile order payment", () => {
     expect(await getMobileOrderStatusByPublicToken(testEnv.DB, request[0].publicToken)).toEqual({
       status: "paid",
       orderStatus: "completed",
+      businessDate: eventId,
     });
   });
 });
