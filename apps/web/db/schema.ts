@@ -21,6 +21,78 @@ export const menuItems = sqliteTable(
   ],
 );
 
+/**
+ * モバイルから送信された、会計前の注文。
+ * 会計完了までは既存の orders / brew_units には作成しない。
+ */
+export const mobileOrderRequests = sqliteTable(
+  "mobile_order_requests",
+  {
+    id: text("id").primaryKey(),
+    storeToken: text("store_token").notNull(),
+    businessDate: text("business_date").notNull(),
+    orderNumber: integer("order_number").notNull(),
+    status: text("status").notNull().default("awaiting_payment"),
+    paidAt: text("paid_at"),
+    acceptedOrderId: text("accepted_order_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    publicToken: text("public_token").notNull(),
+    createdAt: text("created_at").notNull().default(jstNow),
+    updatedAt: text("updated_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check(
+      "mobile_order_requests_status_check",
+      sql`${t.status} IN ('awaiting_payment','paid','cancelled')`,
+    ),
+    uniqueIndex("mobile_order_requests_idempotency_unique").on(t.storeToken, t.idempotencyKey),
+    uniqueIndex("mobile_order_requests_public_token_unique").on(t.publicToken),
+    uniqueIndex("mobile_order_requests_business_date_order_number_unique").on(
+      t.businessDate,
+      t.orderNumber,
+    ),
+    index("mobile_order_requests_store_date_status_idx").on(t.storeToken, t.businessDate, t.status),
+  ],
+);
+
+export const mobileOrderRequestItems = sqliteTable(
+  "mobile_order_request_items",
+  {
+    id: text("id").primaryKey(),
+    requestId: text("request_id")
+      .notNull()
+      .references(() => mobileOrderRequests.id, { onDelete: "cascade" }),
+    menuItemId: text("menu_item_id")
+      .notNull()
+      .references(() => menuItems.id, { onDelete: "restrict" }),
+    itemNameAtOrder: text("item_name_at_order").notNull(),
+    unitPriceAtOrder: integer("unit_price_at_order").notNull(),
+    quantity: integer("quantity").notNull(),
+    createdAt: text("created_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check("mobile_order_request_items_quantity_positive", sql`${t.quantity} > 0`),
+    check("mobile_order_request_items_price_non_negative", sql`${t.unitPriceAtOrder} >= 0`),
+    index("mobile_order_request_items_request_idx").on(t.requestId),
+  ],
+);
+
+/** 店舗・営業日単位のモバイル注文受付状態。行がない日は停止中として扱う。 */
+export const mobileOrderAcceptance = sqliteTable(
+  "mobile_order_acceptance",
+  {
+    id: text("id").primaryKey(),
+    storeToken: text("store_token").notNull(),
+    businessDate: text("business_date").notNull(),
+    isAccepting: integer("is_accepting").notNull().default(0),
+    updatedAt: text("updated_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check("mobile_order_acceptance_boolean_check", sql`${t.isAccepting} IN (0, 1)`),
+    uniqueIndex("mobile_order_acceptance_store_date_unique").on(t.storeToken, t.businessDate),
+  ],
+);
+
 export const orders = sqliteTable(
   "orders",
   {
@@ -31,6 +103,9 @@ export const orders = sqliteTable(
     orderNumber: integer("order_number").notNull(),
     status: text("status").notNull().default("pending"),
     isFree: integer("is_free").notNull().default(0),
+    mobileRequestId: text("mobile_request_id").references(() => mobileOrderRequests.id, {
+      onDelete: "set null",
+    }),
     createdAt: text("created_at").notNull().default(jstNow),
     updatedAt: text("updated_at").notNull().default(jstNow),
   },
@@ -40,6 +115,7 @@ export const orders = sqliteTable(
       sql`${t.status} IN ('pending','brewing','ready','completed','cancelled')`,
     ),
     uniqueIndex("orders_business_date_order_number_unique").on(t.businessDate, t.orderNumber),
+    uniqueIndex("orders_mobile_request_id_unique").on(t.mobileRequestId),
     // 履歴ダイアログの cursor pagination は ORDER BY createdAt DESC, id DESC かつ
     // (createdAt, id) の複合境界条件で絞るので、複合 index にしてスキャン範囲を抑える。
     index("orders_created_at_id_idx").on(t.createdAt, t.id),
@@ -128,6 +204,9 @@ export const brewUnits = sqliteTable(
 
 export const schema = {
   menuItems,
+  mobileOrderRequests,
+  mobileOrderRequestItems,
+  mobileOrderAcceptance,
   orders,
   orderItems,
   orderNumberCounters,

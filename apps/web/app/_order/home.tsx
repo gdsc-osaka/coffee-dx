@@ -1,6 +1,6 @@
 import { ArrowLeft, CheckCircle, Coffee, Printer, ShoppingBag, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Form, useActionData, useNavigation, useSubmit } from "react-router";
+import { Form, Link, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
 import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
@@ -9,8 +9,8 @@ import { normalizeCartItems } from "~/features/order/normalize-cart-items";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
-import { MenuItemCard } from "./components/MenuItemCard";
-import { cartJsonSchema } from "./schemas";
+import { MenuItemCard } from "~/components/MenuItemCard";
+import { cartJsonSchema } from "~/features/order/schemas";
 import { printerClient } from "~/features/printer/printer-client";
 import { receiptGenerator } from "~/features/printer/receipt-generator";
 import { CashierHeader } from "./components/CashierHeader";
@@ -265,12 +265,20 @@ export default function OrderHome({ loaderData }: Route.ComponentProps) {
       />
 
       <header className="bg-stone-900 px-4 py-8">
-        <div className="flex items-center gap-3">
-          <Coffee className="size-6 text-white" />
-          <div>
-            <h1 className="text-xl font-bold text-white tracking-wide">注文受付</h1>
-            <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Order Entry</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Coffee className="size-6 text-white" />
+            <div>
+              <h1 className="text-xl font-bold text-white tracking-wide">注文受付</h1>
+              <p className="text-stone-400 text-xs mt-0.5 tracking-widest uppercase">Order Entry</p>
+            </div>
           </div>
+          <Link
+            to="/order/mobile-checkout"
+            className="rounded-lg border border-stone-600 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-stone-800"
+          >
+            モバイル注文会計
+          </Link>
         </div>
       </header>
 

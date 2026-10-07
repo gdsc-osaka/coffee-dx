@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Form, useActionData, useNavigate, useNavigation } from "react-router";
+import {
+  Form,
+  isRouteErrorResponse,
+  useActionData,
+  useNavigate,
+  useNavigation,
+} from "react-router";
 import type { Route } from "./+types/home";
-import { MenuItemCard } from "~/_order/components/MenuItemCard";
+import { MenuItemCard } from "~/components/MenuItemCard";
 import { cartJsonSchema } from "~/features/order/schemas";
 import {
   createMobileOrderRequest,
@@ -9,6 +15,7 @@ import {
   isValidMobileStoreToken,
   MobileOrderClosedError,
   MobileOrderConflictError,
+  MobileOrderItemUnavailableError,
 } from "~/features/mobile-order/actions";
 import {
   confirmedMobileOrderSchema,
@@ -71,6 +78,9 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     if (error instanceof MobileOrderConflictError) {
       return { ok: false as const, error: error.message, code: "CONFLICT" as const };
     }
+    if (error instanceof MobileOrderItemUnavailableError) {
+      return { ok: false as const, error: error.message, code: "ITEM_UNAVAILABLE" as const };
+    }
     if (error instanceof Response) return { ok: false as const, error: "店舗が見つかりません。" };
     console.error("Mobile order creation failed", error);
     return {
@@ -78,6 +88,20 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       error: "注文を受け付けられませんでした。時間をおいて再度お試しください。",
     };
   }
+}
+
+export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
+  const message =
+    isRouteErrorResponse(error) && error.status === 404
+      ? "店舗が見つかりません。QRコードを読み取り直してください。"
+      : "ページを表示できませんでした。時間をおいて再度お試しください。";
+  return (
+    <main className="min-h-screen bg-stone-100 px-4 py-16">
+      <p className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center text-stone-700 shadow-sm">
+        {message}
+      </p>
+    </main>
+  );
 }
 
 type CartItem = MobileOrderItemInput & { name: string; price: number };
@@ -195,6 +219,19 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     }
     void navigate(`/mobile/orders/${publicToken}`, { replace: true });
   }, [actionData, navigate, storageKey]);
+
+  useEffect(() => {
+    // 結果が確定した入力エラーでは、次の送信に同じ受付キーを使わない。
+    // 結果不明のエラーは、重複注文を防ぐため保留データと受付キーを維持する。
+    if (!actionData || actionData.ok || !("code" in actionData)) return;
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // 保存領域が使えない場合も、画面上の保留状態は解除する。
+    }
+    idempotencyKey.current = crypto.randomUUID();
+    setHasPendingSubmission(false);
+  }, [actionData, storageKey]);
 
   const quantities = useMemo(
     () => new Map(cart.map((item) => [item.menuItemId, item.quantity])),

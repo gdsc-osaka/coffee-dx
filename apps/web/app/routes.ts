@@ -6,14 +6,17 @@ export default [
   // （Chrome は scope 重複した PWA の同時インストールを抑制するため）
   index("_root-redirect.tsx"),
 
-  // 店頭注文・会計画面（スタッフ向け）。
-  layout("_order.tsx", [route("order", "_order/home.tsx")]),
+  // 店頭注文とモバイル注文の会計・商品管理画面（スタッフ向け）。
+  layout("_order.tsx", [
+    route("order", "_order/home.tsx"),
+    route("order/mobile-checkout", "_cashier/mobile-order-checkout.tsx"),
+    route("order/menu-items", "_cashier/menu-items.tsx"),
+  ]),
+
+  // 店舗固定QRから開く公開画面
   route("mobile/:storeToken", "_mobile/home.tsx"),
   route("mobile/orders/:publicToken/status", "_mobile/order-status.ts"),
   route("mobile/orders/:publicToken", "_mobile/order-receipt.tsx"),
-  route("order/mobile-checkout", "_cashier/mobile-order-checkout.tsx"),
-  // 商品登録ページ。mobile-checkout と同じく /order 配下に置く。
-  route("order/menu-items", "_cashier/menu-items.tsx"),
 
   // ドリップ係画面（loaderで認証ガード）
   layout("_drip.tsx", [...prefix("drip", [index("_drip/home.tsx")])]),

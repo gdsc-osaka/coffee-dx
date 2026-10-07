@@ -9,7 +9,7 @@ type Props = {
   quantity: number;
   onAdd: () => void;
   onRemove: () => void;
-  onAdjustPrice: () => void;
+  onAdjustPrice?: () => void;
 };
 
 export function MenuItemCard({
@@ -62,15 +62,17 @@ export function MenuItemCard({
           </div>
         </div>
 
-        <Button
-          type="button"
-          variant="outline"
-          className="h-11 w-full border-amber-300 text-amber-800 hover:bg-amber-50"
-          onClick={onAdjustPrice}
-        >
-          <ReceiptJapaneseYen className="size-4 mr-2" />
-          割引・割増
-        </Button>
+        {onAdjustPrice && (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-11 w-full border-amber-300 text-amber-800 hover:bg-amber-50"
+            onClick={onAdjustPrice}
+          >
+            <ReceiptJapaneseYen className="size-4 mr-2" />
+            割引・割増
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

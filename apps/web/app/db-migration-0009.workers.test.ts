@@ -9,12 +9,12 @@ type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
 
 beforeAll(async () => {
-  const migration0008Index = 8;
-  const legacyMigrations = testEnv.TEST_MIGRATIONS.slice(0, migration0008Index);
-  const migration0008 = testEnv.TEST_MIGRATIONS.at(migration0008Index);
-  if (!migration0008) throw new Error("0008 migration is missing");
+  const migration0009Index = 9;
+  const previousMigrations = testEnv.TEST_MIGRATIONS.slice(0, migration0009Index);
+  const migration0009 = testEnv.TEST_MIGRATIONS.at(migration0009Index);
+  if (!migration0009) throw new Error("0009 migration is missing");
 
-  await applyD1Migrations(testEnv.DB, legacyMigrations);
+  await applyD1Migrations(testEnv.DB, previousMigrations);
 
   const now = "2026-10-05 10:00:00";
   await testEnv.DB.batch([
@@ -40,10 +40,10 @@ beforeAll(async () => {
     ),
   ]);
 
-  await applyD1Migrations(testEnv.DB, [migration0008]);
+  await applyD1Migrations(testEnv.DB, [migration0009]);
 });
 
-describe("migration 0008", () => {
+describe("migration 0009", () => {
   const db = drizzle(testEnv.DB);
 
   it("既存明細へ当時の定価とbrew区分を補完する", async () => {

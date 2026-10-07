@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createMenuItem, setMenuItemAvailability, MenuItemValidationError } from "./actions";
 import { getAllMenuItems, getAvailableMenuItems } from "./queries";
 import { createDb } from "../../lib/db";
-import { menuItems } from "../../db/schema";
+import { menuItems } from "../../../db/schema";
 
 type TestEnv = typeof env & { TEST_MIGRATIONS: D1Migration[] };
 const testEnv = env as TestEnv;
