@@ -14,6 +14,7 @@ export default [
 
   // モバイルオーダー（店舗固定QRから開く公開画面）
   route("mobile/:storeToken", "_mobile/home.tsx"),
+  route("mobile/orders/:publicToken/status", "_mobile/order-status.ts"),
   route("mobile/orders/:publicToken", "_mobile/order-receipt.tsx"),
 
   // ドリップ係画面（loaderで認証ガード）

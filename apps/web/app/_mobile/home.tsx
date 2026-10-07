@@ -109,6 +109,8 @@ type CartItem = MobileOrderItemInput & { name: string; price: number };
 type PendingOrder = PendingMobileOrder;
 type ConfirmedOrder = ConfirmedMobileOrder;
 
+const STATUS_CHECK_TIMEOUT_MS = 3_000;
+
 function parseStorageValue(raw: string): unknown | null {
   try {
     return JSON.parse(raw);
@@ -128,7 +130,7 @@ function readPendingOrder(raw: string): PendingOrder | null {
 }
 
 export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
-  const { items, isAccepting, storeToken } = loaderData;
+  const { items, isAccepting, storeToken, businessDate } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -140,13 +142,70 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
   const storageKey = `mobile-order:pending:${storeToken}`;
 
   useEffect(() => {
+    let cancelled = false;
+
+    // 取消済み・受取済みなどの注文控えを手放し、QRのメニュー画面から次の注文を始められるようにする。
+    // 別タブで新しい注文が保存されていたら、その値は消さない。
+    const releaseSavedOrder = (savedValue: string) => {
+      try {
+        if (window.localStorage.getItem(storageKey) === savedValue) {
+          window.localStorage.removeItem(storageKey);
+        }
+      } catch {
+        // 保存領域が使えなくても、客向けメニューの表示は続ける。
+      }
+    };
+
+    const restoreSavedOrder = async (publicToken: string, savedValue: string) => {
+      try {
+        // 応答が返らないとメニュー上で注文できないまま待たされるため、打ち切って控えへ戻す。
+        const response = await fetch(`/mobile/orders/${publicToken}/status`, {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(STATUS_CHECK_TIMEOUT_MS),
+        });
+        if (cancelled) return;
+
+        // 注文が存在しなければ控えも表示できないため、保存値を捨ててメニューに留まる。
+        if (response.status === 404) {
+          releaseSavedOrder(savedValue);
+          return;
+        }
+        if (response.ok) {
+          const value: unknown = await response.json();
+          const field = (key: string) =>
+            value && typeof value === "object" && key in value
+              ? (value as Record<string, unknown>)[key]
+              : null;
+          const status = field("status");
+          const orderStatus = field("orderStatus");
+          const orderBusinessDate = field("businessDate");
+          if (
+            status === "cancelled" ||
+            orderStatus === "cancelled" ||
+            orderStatus === "completed" ||
+            // 前営業日の注文は当日のスタッフ画面から完了・取消できないことがあるため、
+            // 営業日が変わったら状態にかかわらず手放す。
+            (typeof orderBusinessDate === "string" && orderBusinessDate !== businessDate)
+          ) {
+            releaseSavedOrder(savedValue);
+            return;
+          }
+        }
+      } catch {
+        // 状態確認に失敗しても、保存済みの注文控えは表示できるようにする。
+      }
+      if (!cancelled) void navigate(`/mobile/orders/${publicToken}`, { replace: true });
+    };
+
     try {
       const raw = window.localStorage.getItem(storageKey);
       if (!raw) return;
       const confirmed = readConfirmedOrder(raw);
       if (confirmed) {
-        void navigate(`/mobile/orders/${confirmed.publicToken}`, { replace: true });
-        return;
+        void restoreSavedOrder(confirmed.publicToken, raw);
+        return () => {
+          cancelled = true;
+        };
       }
       const pending = readPendingOrder(raw);
       if (!pending) {
@@ -160,7 +219,11 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     } catch {
       setStorageError("端末の保存領域を利用できません。ブラウザの設定をご確認ください。");
     }
-  }, [navigate, storageKey]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [businessDate, navigate, storageKey]);
 
   useEffect(() => {
     if (!actionData?.ok) return;

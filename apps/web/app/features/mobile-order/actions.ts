@@ -24,9 +24,16 @@ export type MobileOrderRequestResult = {
   businessDate: string;
   orderNumber: number;
   status: "awaiting_payment" | "paid" | "cancelled";
+  /** 支払後に作成された通常注文の状態。会計前・取消済みは null。 */
+  orderStatus: "pending" | "brewing" | "ready" | "completed" | "cancelled" | null;
   createdAt: string;
   items: MobileOrderItemSnapshot[];
 };
+
+export type MobileOrderStatus = Pick<MobileOrderRequestResult, "status" | "orderStatus">;
+/** QR再読込時に前営業日の注文かを判定できるよう、状態確認APIは営業日も返す。 */
+type MobileOrderStatusWithBusinessDate = MobileOrderStatus &
+  Pick<MobileOrderRequestResult, "businessDate">;
 
 type StoredRequest = {
   id: string;
@@ -35,6 +42,7 @@ type StoredRequest = {
   order_number: number;
   status: MobileOrderRequestResult["status"];
   public_token: string;
+  accepted_order_id: string | null;
   created_at: string;
 };
 
@@ -127,7 +135,8 @@ async function getRequestByIdempotencyKey(
 ): Promise<MobileOrderRequestResult | null> {
   const request = await d1
     .prepare(
-      `SELECT id, store_token, business_date, order_number, status, public_token, created_at
+      `SELECT id, store_token, business_date, order_number, status, public_token,
+              accepted_order_id, created_at
        FROM mobile_order_requests
        WHERE store_token = ? AND idempotency_key = ?`,
     )
@@ -144,7 +153,8 @@ export async function getMobileOrderByPublicToken(
 ): Promise<MobileOrderRequestResult | null> {
   const request = await d1
     .prepare(
-      `SELECT id, store_token, business_date, order_number, status, public_token, created_at
+      `SELECT id, store_token, business_date, order_number, status, public_token,
+              accepted_order_id, created_at
        FROM mobile_order_requests
        WHERE public_token = ?`,
     )
@@ -152,6 +162,25 @@ export async function getMobileOrderByPublicToken(
     .first<StoredRequest>();
   if (!request) return null;
   return getRequestResult(d1, request);
+}
+
+export async function getMobileOrderStatusByPublicToken(
+  d1: D1Database,
+  publicToken: string,
+): Promise<MobileOrderStatusWithBusinessDate | null> {
+  const row = await d1
+    .prepare(
+      `SELECT request.status, accepted.status AS orderStatus,
+              request.business_date AS businessDate
+         FROM mobile_order_requests AS request
+         LEFT JOIN orders AS accepted
+           ON accepted.id = request.accepted_order_id
+          AND accepted.mobile_request_id = request.id
+        WHERE request.public_token = ?`,
+    )
+    .bind(publicToken)
+    .first<MobileOrderStatusWithBusinessDate>();
+  return row ?? null;
 }
 
 async function getRequestResult(
@@ -168,12 +197,26 @@ async function getRequestResult(
     .bind(request.id)
     .all<StoredRequestItem>();
 
+  const acceptedOrder = request.accepted_order_id
+    ? await d1
+        .prepare(
+          `SELECT status
+             FROM orders
+            WHERE id = ? AND mobile_request_id = ?`,
+        )
+        .bind(request.accepted_order_id, request.id)
+        .first<{
+          status: MobileOrderRequestResult["orderStatus"];
+        }>()
+    : null;
+
   return {
     id: request.id,
     publicToken: request.public_token,
     businessDate: request.business_date,
     orderNumber: request.order_number,
     status: request.status,
+    orderStatus: acceptedOrder?.status ?? null,
     createdAt: request.created_at,
     items: results.map((item) => ({
       menuItemId: item.menu_item_id,
@@ -346,6 +389,7 @@ export async function createMobileOrderRequest(
     businessDate,
     orderNumber: await getOrderNumber(d1, id),
     status: "awaiting_payment",
+    orderStatus: null,
     createdAt: now,
     items: snapshots,
   };
