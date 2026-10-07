@@ -64,6 +64,13 @@ export class MobileOrderConflictError extends Error {
   }
 }
 
+export class MobileOrderItemUnavailableError extends Error {
+  constructor() {
+    super("販売中でない商品が含まれています。内容を修正してください。");
+    this.name = "MobileOrderItemUnavailableError";
+  }
+}
+
 export function getConfiguredMobileStoreToken(env: Env): string {
   const token = (env as MobileEnv).MOBILE_ORDER_STORE_TOKEN;
   const result = mobileStoreTokenSchema.safeParse(token);
@@ -270,7 +277,7 @@ export async function createMobileOrderRequest(
   const snapshots: MobileOrderItemSnapshot[] = [];
   for (const item of items) {
     const menuItem = menuById.get(item.menuItemId);
-    if (!menuItem) throw new Error("販売中でない商品が含まれています。");
+    if (!menuItem) throw new MobileOrderItemUnavailableError();
     snapshots.push({
       menuItemId: item.menuItemId,
       quantity: item.quantity,
