@@ -171,6 +171,25 @@ describe("OrderDO", () => {
     expect(snap.brewUnits[0].id).toBe("u-mine");
   });
 
+  it("別 business_date の未完了注文は SNAPSHOT に含まれない（DX-49 回帰防止）", async () => {
+    await insertMenu("m1", "coffee");
+    // 当日の注文
+    await insertOrder("o-today", 1, "pending");
+    await insertOrderItem("i-today", "o-today", "m1", 1);
+    // 過去日 (= 別 event) のやり残し ready 注文
+    await insertOrder("o-past", 246, "ready", `event-${crypto.randomUUID()}`);
+    await insertOrderItem("i-past", "o-past", "m1", 1);
+
+    const ws = await connectWebSocket();
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    const snap = await queue.next();
+
+    expect(snap.type).toBe("SNAPSHOT");
+    expect(snap.orders).toHaveLength(1);
+    expect(snap.orders[0].id).toBe("o-today");
+  });
+
   // ---------------------------------------------------------------------------
   // BREW_UNITS_CREATED
   // ---------------------------------------------------------------------------
@@ -808,6 +827,77 @@ describe("OrderDO", () => {
       const unitDelete = messages.find((m) => m.type === "BREW_UNIT_DELETED");
       expect(orderUpdate?.status).toBe("cancelled");
       expect(unitDelete?.brewUnitId).toBe("u1");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /do/orders/:id/close（当日と過去日のやり残し）
+  // ---------------------------------------------------------------------------
+
+  describe("POST /do/orders/:id/close", () => {
+    // DO のメモリをテスト間で共有しないよう、過去日はテストごとに変える。
+    let pastDay = 0;
+    const nextPastEventId = () => `2023-01-${String(++pastDay).padStart(2, "0")}`;
+
+    const postOrderAction = (orderId: string, action: "close" | "cancel", targetEventId: string) =>
+      testEnv.ORDER_DO.get(testEnv.ORDER_DO.idFromName(targetEventId)).fetch(
+        new Request(`http://localhost/do/orders/${orderId}/${action}`, {
+          method: "POST",
+          headers: { "x-event-id": targetEventId },
+        }),
+      );
+
+    it("当日の ready 注文を完了にできる", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "ready");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const res = await postOrderAction("o1", "close", eventId);
+      expect(res.status).toBe(200);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe("completed");
+    });
+
+    it.each(["pending", "brewing"] as const)("当日の %s 注文は完了にできない", async (status) => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, status);
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const res = await postOrderAction("o1", "close", eventId);
+      expect(res.status).toBe(409);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe(status);
+    });
+
+    it.each(["pending", "brewing", "ready"] as const)(
+      "過去日の %s 注文は完了にできる（DX-49）",
+      async (status) => {
+        const pastEventId = nextPastEventId();
+        await insertMenu("m1");
+        await insertOrder("o-past", 246, status, pastEventId);
+        await insertOrderItem("i-past", "o-past", "m1", 1);
+
+        const res = await postOrderAction("o-past", "close", pastEventId);
+        expect(res.status).toBe(200);
+
+        const dbOrder = await db.select().from(orders).where(eq(orders.id, "o-past"));
+        expect(dbOrder[0].status).toBe("completed");
+      },
+    );
+
+    it("過去日の ready 注文をキャンセルできる（DX-49）", async () => {
+      const pastEventId = nextPastEventId();
+      await insertMenu("m1");
+      await insertOrder("o-past", 246, "ready", pastEventId);
+      await insertOrderItem("i-past", "o-past", "m1", 1);
+
+      const res = await postOrderAction("o-past", "cancel", pastEventId);
+      expect(res.status).toBe(200);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o-past"));
+      expect(dbOrder[0].status).toBe("cancelled");
     });
   });
 

@@ -8,6 +8,8 @@ import {
   type QueueMenus,
 } from "../features/brew-queue/queue";
 import { createDb } from "../lib/db";
+import { getJstNowString } from "../lib/datetime";
+import { getBusinessDate } from "../lib/order-do";
 
 /** 次枠キューと対象メニュー ID を保存する DO storage のキー（DO は業務日ごとなので日付は含めない） */
 const QUEUE_STORAGE_KEY = "brewQueue";
@@ -117,6 +119,13 @@ export class OrderDurableObject implements DurableObject {
       return new Response(null, { status: 204 });
     }
 
+    const mobileOrderMatch = url.pathname.match(/^\/do\/mobile-orders\/([^/]+)\/(pay|cancel)$/);
+    if (request.method === "POST" && mobileOrderMatch) {
+      const [, requestId, action] = mobileOrderMatch;
+      if (action === "pay") return this.handleMobileOrderPayment(requestId);
+      return this.handleMobileOrderCancellation(requestId);
+    }
+
     // POST /do/brew-units  →  バッチ生成
     if (request.method === "POST" && url.pathname === "/do/brew-units") {
       return this.handleBrewUnitsCreate(request);
@@ -154,7 +163,13 @@ export class OrderDurableObject implements DurableObject {
         case "cancel":
           return this.transitionStatus(orderId, "cancelled", ["pending", "brewing", "ready"]);
         case "close":
-          return this.transitionStatus(orderId, "completed", ["ready"]);
+          // 過去日のやり残し注文は、抽出の紐付けをせずに提供したものも完了にできるよう
+          // pending/brewing からの完了を許す。当日は受け取り可能 (ready) な注文だけ（DX-49）。
+          return this.transitionStatus(
+            orderId,
+            "completed",
+            this.isPastBusinessDate() ? ["pending", "brewing", "ready"] : ["ready"],
+          );
       }
     }
 
@@ -182,6 +197,9 @@ export class OrderDurableObject implements DurableObject {
         const db = createDb(this.env.DB);
 
         // --- orders ---
+        // brew_units 側と同様に business_date でも絞る。これが無いと別 event の
+        // pending/brewing/ready 注文を取り込み、当日に紐付き brew_unit が無いまま
+        // 「未着手なのに ready」表示になる事故を起こす（DX-49）。
         const activeOrders = await db
           .select()
           .from(orders)
@@ -347,14 +365,239 @@ export class OrderDurableObject implements DurableObject {
   // 注文作成
   // ---------------------------------------------------------------------------
 
+  private async getMobileOrderRequest(requestId: string): Promise<{
+    id: string;
+    businessDate: string;
+    orderNumber: number;
+    status: "awaiting_payment" | "paid" | "cancelled";
+    acceptedOrderId: string | null;
+  } | null> {
+    return this.env.DB.prepare(
+      `SELECT id, business_date AS businessDate, order_number AS orderNumber,
+              status, accepted_order_id AS acceptedOrderId
+         FROM mobile_order_requests
+        WHERE id = ?`,
+    )
+      .bind(requestId)
+      .first<{
+        id: string;
+        businessDate: string;
+        orderNumber: number;
+        status: "awaiting_payment" | "paid" | "cancelled";
+        acceptedOrderId: string | null;
+      }>();
+  }
+
+  private async loadOrderData(orderId: string): Promise<OrderData | null> {
+    const db = createDb(this.env.DB);
+    const order = await db.select().from(orders).where(eq(orders.id, orderId)).get();
+    if (!order) return null;
+
+    const dbItems = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    const menuIds = [...new Set(dbItems.map((item) => item.menuItemId))];
+    const menuRecords =
+      menuIds.length > 0
+        ? await db
+            .select({ id: menuItems.id, name: menuItems.name })
+            .from(menuItems)
+            .where(inArray(menuItems.id, menuIds))
+        : [];
+    const menuNames = new Map(menuRecords.map((menu) => [menu.id, menu.name]));
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status as OrderStatus,
+      createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
+      items: dbItems.map((item) => ({
+        id: item.id,
+        orderId: item.orderId,
+        menuItemId: item.menuItemId,
+        quantity: item.quantity,
+        name: menuNames.get(item.menuItemId),
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      })),
+    };
+  }
+
+  private async registerOrderIfMissing(order: OrderData): Promise<void> {
+    const existing = this.orders.get(order.id);
+    if (existing) {
+      await this.autoAssignReadyUnits(existing);
+      await this.refillBrewQueue();
+      return;
+    }
+    this.orders.set(order.id, order);
+    this.broadcast({ type: "ORDER_CREATED", order });
+    await this.autoAssignReadyUnits(order);
+    await this.refillBrewQueue();
+  }
+
+  private async handleMobileOrderPayment(requestId: string): Promise<Response> {
+    return this.state.blockConcurrencyWhile(async () => {
+      const request = await this.getMobileOrderRequest(requestId);
+      if (!request) return new Response("Mobile order request not found", { status: 404 });
+      // 現状 eventId は呼び出し側が request.businessDate から渡すため常に一致する（下の D1 条件も同様）。マルチテナント化を見越して残す。
+      if (request.businessDate !== this.eventId) {
+        return new Response("Payment is only available for the current business date", {
+          status: 409,
+        });
+      }
+      if (request.status === "cancelled") {
+        return new Response("Cancelled mobile order cannot be paid", { status: 409 });
+      }
+
+      if (request.status === "paid") {
+        if (!request.acceptedOrderId) {
+          return new Response("Paid mobile order has no accepted order", { status: 500 });
+        }
+        const order = await this.loadOrderData(request.acceptedOrderId);
+        if (!order) return new Response("Accepted order not found", { status: 500 });
+        if (["pending", "brewing", "ready"].includes(order.status)) {
+          await this.registerOrderIfMissing(order);
+        }
+        return Response.json({ status: "already_paid", orderId: order.id });
+      }
+
+      const itemRows = await this.env.DB.prepare(
+        `SELECT id, menu_item_id AS menuItemId, quantity
+           FROM mobile_order_request_items
+          WHERE request_id = ?
+          ORDER BY rowid`,
+      )
+        .bind(requestId)
+        .all<{ id: string; menuItemId: string; quantity: number }>();
+      if (itemRows.results.length === 0) {
+        return new Response("Mobile order has no items", { status: 409 });
+      }
+
+      // D1が確定したのに応答だけ失われた場合、同じIDで再送するとorder_itemsの主キーが衝突する。
+      // 再試行ごとにIDを作り直し、確定済みなら全文0行で終わらせて下の再読込で結果を確認する。
+      const buildPaymentStatements = (): D1PreparedStatement[] => {
+        const now = getJstNowString();
+        const orderId = crypto.randomUUID();
+        const orderItemIds = itemRows.results.map(() => crypto.randomUUID());
+        const statements: D1PreparedStatement[] = [
+          this.env.DB.prepare(
+            `INSERT INTO orders
+               (id, business_date, order_number, status, is_free, mobile_request_id, created_at, updated_at)
+             SELECT ?, ?, ?, 'pending', 0, ?, ?, ?
+               FROM mobile_order_requests
+              WHERE id = ? AND status = 'awaiting_payment' AND accepted_order_id IS NULL
+                AND business_date = ?
+                AND EXISTS (
+                  SELECT 1 FROM mobile_order_request_items WHERE request_id = ?
+                )`,
+          ).bind(
+            orderId,
+            request.businessDate,
+            request.orderNumber,
+            requestId,
+            now,
+            now,
+            requestId,
+            this.eventId,
+            requestId,
+          ),
+        ];
+
+        for (let i = 0; i < itemRows.results.length; i++) {
+          const item = itemRows.results[i];
+          statements.push(
+            this.env.DB.prepare(
+              // 単価は受付時に確定した値を、提供種別は会計時点の商品マスタの値を明細に固定する。
+              `INSERT INTO order_items
+                 (id, order_id, menu_item_id, unit_price_at_order, fulfillment_type_at_order,
+                  quantity, created_at, updated_at)
+               SELECT ?, ?, request_item.menu_item_id, request_item.unit_price_at_order,
+                      COALESCE(menu.fulfillment_type, 'brew'), request_item.quantity, ?, ?
+                 FROM mobile_order_request_items AS request_item
+                 LEFT JOIN menu_items AS menu ON menu.id = request_item.menu_item_id
+                WHERE request_item.id = ? AND request_item.request_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
+                  )`,
+            ).bind(orderItemIds[i], orderId, now, now, item.id, requestId, orderId, requestId),
+          );
+        }
+
+        statements.push(
+          this.env.DB.prepare(
+            `UPDATE mobile_order_requests
+                SET status = 'paid', paid_at = ?, accepted_order_id = ?, updated_at = ?
+              WHERE id = ? AND status = 'awaiting_payment' AND business_date = ?
+                AND accepted_order_id IS NULL
+                AND EXISTS (
+                  SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
+                )`,
+          ).bind(now, orderId, now, requestId, this.eventId, orderId, requestId),
+        );
+        return statements;
+      };
+
+      await this.writeWithRetry(() => this.env.DB.batch(buildPaymentStatements()));
+
+      const updatedRequest = await this.getMobileOrderRequest(requestId);
+      if (!updatedRequest || updatedRequest.status !== "paid" || !updatedRequest.acceptedOrderId) {
+        if (updatedRequest?.status === "cancelled") {
+          return new Response("Cancelled mobile order cannot be paid", { status: 409 });
+        }
+        return new Response("Mobile order payment could not be completed", { status: 409 });
+      }
+
+      const order = await this.loadOrderData(updatedRequest.acceptedOrderId);
+      if (!order) return new Response("Accepted order not found", { status: 500 });
+      if (["pending", "brewing", "ready"].includes(order.status)) {
+        await this.registerOrderIfMissing(order);
+      }
+      return Response.json({ status: "paid", orderId: order.id });
+    });
+  }
+
+  private async handleMobileOrderCancellation(requestId: string): Promise<Response> {
+    return this.state.blockConcurrencyWhile(async () => {
+      const request = await this.getMobileOrderRequest(requestId);
+      if (!request) return new Response("Mobile order request not found", { status: 404 });
+      // 現状 eventId は呼び出し側が request.businessDate から渡すため常に一致する。マルチテナント化を見越して残す。
+      if (request.businessDate !== this.eventId) {
+        return new Response("Order belongs to another business date", { status: 409 });
+      }
+      if (request.status === "paid") {
+        return new Response("Paid mobile order cannot be cancelled here", { status: 409 });
+      }
+      if (request.status === "cancelled") {
+        return Response.json({ status: "already_cancelled" });
+      }
+
+      const result = await this.writeWithRetry(() =>
+        this.env.DB.prepare(
+          `UPDATE mobile_order_requests
+              SET status = 'cancelled', updated_at = ?
+            WHERE id = ? AND status = 'awaiting_payment'`,
+        )
+          .bind(getJstNowString(), requestId)
+          .run(),
+      );
+      if (result.meta?.changes === 0) {
+        const updated = await this.getMobileOrderRequest(requestId);
+        if (updated?.status === "cancelled") return Response.json({ status: "already_cancelled" });
+        if (updated?.status === "paid") {
+          return new Response("Paid mobile order cannot be cancelled here", { status: 409 });
+        }
+        return new Response("Mobile order cancellation conflicted", { status: 409 });
+      }
+      return Response.json({ status: "cancelled" });
+    });
+  }
+
   private async newOrder(order: OrderData): Promise<void> {
     // handleBatchComplete と同じ ready 未紐付けプールを取り合うため、
     // setTimeout バックオフ越しの interleave を防ぐ目的で全体を直列化する。
     await this.state.blockConcurrencyWhile(async () => {
       this.orders.set(order.id, order);
       this.broadcast({ type: "ORDER_CREATED", order });
-
-      // 既存の ready・未紐付けユニットがあれば自動割り当て
       await this.autoAssignReadyUnits(order);
 
       await this.refillBrewQueue();
@@ -796,6 +1039,11 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
   // 共通: 注文ステータス遷移（DB + インメモリ + broadcast）
   // ---------------------------------------------------------------------------
+
+  /** この DO の営業日が今日 (JST) より前か。eventId は YYYY-MM-DD なので文字列比較で判定できる。 */
+  private isPastBusinessDate(): boolean {
+    return this.eventId !== null && this.eventId < getBusinessDate();
+  }
 
   private async transitionStatus(
     orderId: string,

@@ -6,6 +6,10 @@ import { getRecentOrders } from "~/features/order/history-queries";
 const PAGE_SIZE = 10;
 
 export async function loader({ request, context }: Route.LoaderArgs) {
+  // TODO: スタッフ認証を実装する。リソースルートは _cashier レイアウトの loader を経由しないため、
+  // ここでも個別に確認する（app/routes.ts のコメント参照）。
+  // const isStaff = await verifyStaffSession(request);
+  // if (!isStaff) throw data(null, { status: 401 });
   const url = new URL(request.url);
   const cursorCreatedAt = url.searchParams.get("cursorCreatedAt");
   const cursorId = url.searchParams.get("cursorId");

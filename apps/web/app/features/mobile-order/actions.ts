@@ -31,6 +31,9 @@ export type MobileOrderRequestResult = {
 };
 
 export type MobileOrderStatus = Pick<MobileOrderRequestResult, "status" | "orderStatus">;
+/** QR再読込時に前営業日の注文かを判定できるよう、状態確認APIは営業日も返す。 */
+type MobileOrderStatusWithBusinessDate = MobileOrderStatus &
+  Pick<MobileOrderRequestResult, "businessDate">;
 
 type StoredRequest = {
   id: string;
@@ -164,10 +167,11 @@ export async function getMobileOrderByPublicToken(
 export async function getMobileOrderStatusByPublicToken(
   d1: D1Database,
   publicToken: string,
-): Promise<MobileOrderStatus | null> {
+): Promise<MobileOrderStatusWithBusinessDate | null> {
   const row = await d1
     .prepare(
-      `SELECT request.status, accepted.status AS orderStatus
+      `SELECT request.status, accepted.status AS orderStatus,
+              request.business_date AS businessDate
          FROM mobile_order_requests AS request
          LEFT JOIN orders AS accepted
            ON accepted.id = request.accepted_order_id
@@ -175,7 +179,7 @@ export async function getMobileOrderStatusByPublicToken(
         WHERE request.public_token = ?`,
     )
     .bind(publicToken)
-    .first<MobileOrderStatus>();
+    .first<MobileOrderStatusWithBusinessDate>();
   return row ?? null;
 }
 

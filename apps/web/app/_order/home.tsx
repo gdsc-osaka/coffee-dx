@@ -265,7 +265,7 @@ export default function OrderHome({ loaderData }: Route.ComponentProps) {
       />
 
       <header className="bg-stone-900 px-4 py-8">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <Coffee className="size-6 text-white" />
             <div>
@@ -275,8 +275,9 @@ export default function OrderHome({ loaderData }: Route.ComponentProps) {
           </div>
           <Link
             to="/order/mobile-checkout"
-            className="rounded-lg border border-stone-600 px-3 py-2 text-xs font-bold text-stone-200 hover:bg-stone-800"
+            className="flex min-h-14 w-full items-center justify-center gap-3 rounded-xl bg-white px-6 py-3 text-base font-bold text-stone-950 shadow-lg transition-colors hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
           >
+            <ShoppingBag className="size-5 shrink-0" aria-hidden="true" />
             モバイル注文会計
           </Link>
         </div>

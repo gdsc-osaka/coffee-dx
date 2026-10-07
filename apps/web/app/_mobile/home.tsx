@@ -90,6 +90,7 @@ export async function action({ request, params, context }: Route.ActionArgs) {
   }
 }
 
+// root の ErrorBoundary は 404 を英語の固定文言で表示するため、客向け画面では専用の表示にする。
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
   const message =
     isRouteErrorResponse(error) && error.status === 404
@@ -107,6 +108,8 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
 type CartItem = MobileOrderItemInput & { name: string; price: number };
 type PendingOrder = PendingMobileOrder;
 type ConfirmedOrder = ConfirmedMobileOrder;
+
+const STATUS_CHECK_TIMEOUT_MS = 3_000;
 
 function parseStorageValue(raw: string): unknown | null {
   try {
@@ -127,7 +130,7 @@ function readPendingOrder(raw: string): PendingOrder | null {
 }
 
 export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
-  const { items, isAccepting, storeToken } = loaderData;
+  const { items, isAccepting, storeToken, businessDate } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigate = useNavigate();
   const navigation = useNavigation();
@@ -141,37 +144,50 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
   useEffect(() => {
     let cancelled = false;
 
+    // 取消済み・受取済みなどの注文控えを手放し、QRのメニュー画面から次の注文を始められるようにする。
+    // 別タブで新しい注文が保存されていたら、その値は消さない。
+    const releaseSavedOrder = (savedValue: string) => {
+      try {
+        if (window.localStorage.getItem(storageKey) === savedValue) {
+          window.localStorage.removeItem(storageKey);
+        }
+      } catch {
+        // 保存領域が使えなくても、客向けメニューの表示は続ける。
+      }
+    };
+
     const restoreSavedOrder = async (publicToken: string, savedValue: string) => {
       try {
+        // 応答が返らないとメニュー上で注文できないまま待たされるため、打ち切って控えへ戻す。
         const response = await fetch(`/mobile/orders/${publicToken}/status`, {
           headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(STATUS_CHECK_TIMEOUT_MS),
         });
         if (cancelled) return;
 
+        // 注文が存在しなければ控えも表示できないため、保存値を捨ててメニューに留まる。
+        if (response.status === 404) {
+          releaseSavedOrder(savedValue);
+          return;
+        }
         if (response.ok) {
           const value: unknown = await response.json();
-          const status =
-            value && typeof value === "object" && "status" in value
-              ? (value as { status?: unknown }).status
+          const field = (key: string) =>
+            value && typeof value === "object" && key in value
+              ? (value as Record<string, unknown>)[key]
               : null;
-          const orderStatus =
-            value && typeof value === "object" && "orderStatus" in value
-              ? (value as { orderStatus?: unknown }).orderStatus
-              : null;
+          const status = field("status");
+          const orderStatus = field("orderStatus");
+          const orderBusinessDate = field("businessDate");
           if (
             status === "cancelled" ||
             orderStatus === "cancelled" ||
-            orderStatus === "completed"
+            orderStatus === "completed" ||
+            // 前営業日の注文は当日のスタッフ画面から完了・取消できないことがあるため、
+            // 営業日が変わったら状態にかかわらず手放す。
+            (typeof orderBusinessDate === "string" && orderBusinessDate !== businessDate)
           ) {
-            // 取消済み・受取済みならQRのメニュー画面に留まり、次の注文を始められるようにする。
-            // 別タブで新しい注文が保存されていたら、その値は消さない。
-            try {
-              if (window.localStorage.getItem(storageKey) === savedValue) {
-                window.localStorage.removeItem(storageKey);
-              }
-            } catch {
-              // 保存領域が使えなくても、客向けメニューの表示は続ける。
-            }
+            releaseSavedOrder(savedValue);
             return;
           }
         }
@@ -207,7 +223,7 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     return () => {
       cancelled = true;
     };
-  }, [navigate, storageKey]);
+  }, [businessDate, navigate, storageKey]);
 
   useEffect(() => {
     if (!actionData?.ok) return;
@@ -221,8 +237,9 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
   }, [actionData, navigate, storageKey]);
 
   useEffect(() => {
-    // 結果が確定した入力エラーでは、次の送信に同じ受付キーを使わない。
-    // 結果不明のエラーは、重複注文を防ぐため保留データと受付キーを維持する。
+    // code 付きのエラーは、この送信で注文が作られていないことが確定している。
+    // 保留注文を解除し、新しい受付キーで修正・再送できるようにする。
+    // code のないエラーは保存結果が不明なため、同じ受付キーでの再送に備えて保留注文を残す。
     if (!actionData || actionData.ok || !("code" in actionData)) return;
     try {
       window.localStorage.removeItem(storageKey);
