@@ -91,19 +91,12 @@ describe("OrderDO", () => {
     id: string,
     orderNumber: number,
     status: "pending" | "brewing" | "ready" | "completed" | "cancelled",
-    overrides?: { businessDate?: string },
+    businessDate = eventId,
   ) => {
     const now = isoNow();
-    return db.insert(orders).values([
-      {
-        id,
-        businessDate: overrides?.businessDate ?? eventId,
-        orderNumber,
-        status,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ]);
+    return db
+      .insert(orders)
+      .values([{ id, businessDate, orderNumber, status, createdAt: now, updatedAt: now }]);
   };
 
   const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
@@ -117,10 +110,13 @@ describe("OrderDO", () => {
   // SNAPSHOT + businessDate フィルタ
   // ---------------------------------------------------------------------------
 
-  it("初回接続時に SNAPSHOT を受信し、別 eventId の brew_units は含まれない", async () => {
+  it("初回接続時に SNAPSHOT を受信し、別 eventId の orders と brew_units は含まれない", async () => {
     await insertMenu("m1", "coffee");
     await insertOrder("o1", 101, "pending");
     await insertOrderItem("i1", "o1", "m1", 2);
+    const otherEventId = `event-${crypto.randomUUID()}`;
+    await insertOrder("o-other", 101, "pending", otherEventId);
+    await insertOrderItem("i-other", "o-other", "m1", 2);
 
     const now = isoNow();
     await db.insert(brewUnits).values([
@@ -140,7 +136,7 @@ describe("OrderDO", () => {
         batchId: "b-other",
         menuItemId: "m1",
         status: "brewing",
-        businessDate: `event-${crypto.randomUUID()}`,
+        businessDate: otherEventId,
         createdAt: now,
         updatedAt: now,
       },
@@ -166,7 +162,7 @@ describe("OrderDO", () => {
     await insertOrder("o-today", 1, "pending");
     await insertOrderItem("i-today", "o-today", "m1", 1);
     // 過去日 (= 別 event) のやり残し ready 注文
-    await insertOrder("o-past", 246, "ready", { businessDate: `event-${crypto.randomUUID()}` });
+    await insertOrder("o-past", 246, "ready", `event-${crypto.randomUUID()}`);
     await insertOrderItem("i-past", "o-past", "m1", 1);
 
     const ws = await connectWebSocket();
@@ -444,6 +440,19 @@ describe("OrderDO", () => {
 
     const updatedOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
     expect(updatedOrder[0].status).toBe("ready");
+
+    // 応答喪失などで同じ完了操作が再送されても、404にせず同じ結果を返す。
+    const retry = await stub.fetch(
+      new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
+        method: "POST",
+        headers: { "x-event-id": eventId },
+      }),
+    );
+    expect(retry.status).toBe(200);
+
+    const retriedUnits = await db.select().from(brewUnits);
+    expect(retriedUnits).toHaveLength(2);
+    expect(retriedUnits.filter((u) => u.orderItemId === "i1")).toHaveLength(1);
   });
 
   // ---------------------------------------------------------------------------
@@ -625,19 +634,44 @@ describe("OrderDO", () => {
       expect(m.status).toBe("cancelled");
     });
 
-    it("ready な注文のキャンセルは 409 を返し、DB は ready のまま", async () => {
+    it("ready な注文をキャンセルし、紐付き BrewUnit を画面から除く", async () => {
       await insertMenu("m1");
       await insertOrder("o1", 101, "ready");
       await insertOrderItem("i1", "o1", "m1", 1);
 
+      const now = isoNow();
+      await db.insert(brewUnits).values([
+        {
+          id: "u1",
+          batchId: "b1",
+          menuItemId: "m1",
+          status: "ready",
+          orderItemId: "i1",
+          businessDate: eventId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
       const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
       ws.accept();
+      await queue.next(); // SNAPSHOT
 
       const res = await cancelOrder("o1");
-      expect(res.status).toBe(409);
+      expect(res.status).toBe(200);
 
       const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
-      expect(dbOrder[0].status).toBe("ready");
+      expect(dbOrder[0].status).toBe("cancelled");
+
+      const dbUnit = await db.select().from(brewUnits).where(eq(brewUnits.id, "u1"));
+      expect(dbUnit[0].status).toBe("ready");
+      expect(dbUnit[0].orderItemId).toBe("i1");
+
+      expect(await queue.take(2)).toEqual([
+        expect.objectContaining({ type: "ORDER_UPDATED", orderId: "o1", status: "cancelled" }),
+        expect.objectContaining({ type: "BREW_UNIT_DELETED", brewUnitId: "u1" }),
+      ]);
     });
 
     it("既に cancelled な注文を再度キャンセルすると 404 (DO メモリから削除済み)", async () => {
@@ -656,6 +690,21 @@ describe("OrderDO", () => {
 
       const second = await cancelOrder("o1");
       expect(second.status).toBe(404);
+    });
+
+    it("提供済みの completed 注文はキャンセルできない", async () => {
+      await insertMenu("m1");
+      await insertOrder("o1", 101, "completed");
+      await insertOrderItem("i1", "o1", "m1", 1);
+
+      const ws = await connectWebSocket();
+      ws.accept();
+
+      const res = await cancelOrder("o1");
+      expect(res.status).toBe(404);
+
+      const dbOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+      expect(dbOrder[0].status).toBe("completed");
     });
 
     it("存在しない注文のキャンセルは 404", async () => {
@@ -699,6 +748,102 @@ describe("OrderDO", () => {
       const unitDelete = messages.find((m) => m.type === "BREW_UNIT_DELETED");
       expect(orderUpdate?.status).toBe("cancelled");
       expect(unitDelete?.brewUnitId).toBe("u1");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 次枠キュー（docs/design/drip-suggestion.md）
+  // ---------------------------------------------------------------------------
+
+  describe("次枠キュー", () => {
+    const postNewOrder = (orderId: string, itemId: string, quantity: number, menuItemId = "m1") => {
+      const now = isoNow();
+      return stub.fetch(
+        new Request("http://localhost/do/new-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-event-id": eventId },
+          body: JSON.stringify({
+            id: orderId,
+            orderNumber: 101,
+            status: "pending",
+            createdAt: now,
+            updatedAt: now,
+            items: [{ id: itemId, orderId, menuItemId, quantity, createdAt: now, updatedAt: now }],
+          }),
+        }),
+      );
+    };
+
+    it("SNAPSHOT にキューを含め、新しい注文で補充し、抽出開始で消費する", async () => {
+      await insertMenu("m1", "coffee");
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      const snap = await queue.next();
+      expect(snap.queue).toEqual([]);
+
+      expect((await postNewOrder("o1", "i1", 2)).status).toBe(204);
+      const [created, refilled] = await queue.take(2);
+      expect(created.type).toBe("ORDER_CREATED");
+      expect(refilled.type).toBe("QUEUE_UPDATED");
+      expect(refilled.queue).toHaveLength(1);
+      expect(refilled.queue[0]).toMatchObject({ menuItemId: "m1", count: 2 });
+
+      await stub.fetch(
+        new Request("http://localhost/do/brew-units", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-event-id": eventId },
+          body: JSON.stringify({ menuItemId: "m1", count: 2 }),
+        }),
+      );
+      const [brewCreated, consumed] = await queue.take(2);
+      expect(brewCreated.type).toBe("BREW_UNITS_CREATED");
+      expect(consumed.type).toBe("QUEUE_UPDATED");
+      expect(consumed.queue).toEqual([]);
+    });
+
+    it("提供中のメニューが 3 種類あっても、3 種類目をキューへ補充する", async () => {
+      await insertMenu("m1");
+      await insertMenu("m2");
+      await insertMenu("m3");
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      expect((await postNewOrder("o3", "i3", 2, "m3")).status).toBe(204);
+      const [, refilled] = await queue.take(2); // ORDER_CREATED, QUEUE_UPDATED
+      expect(refilled.queue).toHaveLength(1);
+      expect(refilled.queue[0]).toMatchObject({ menuItemId: "m3", count: 2 });
+    });
+
+    it("注文の取消で余った対応予定を減らす", async () => {
+      await insertMenu("m1", "coffee");
+      await insertOrder("o1", 101, "pending");
+      await insertOrderItem("i1", "o1", "m1", 3);
+
+      const ws = await connectWebSocket();
+      const queue = createMessageQueue(ws);
+      ws.accept();
+      await queue.next(); // SNAPSHOT
+
+      await postNewOrder("o1", "i1", 3);
+      const [, refilled] = await queue.take(2); // ORDER_CREATED, QUEUE_UPDATED
+      expect(refilled.queue[0]).toMatchObject({ menuItemId: "m1", count: 3 });
+
+      const res = await stub.fetch(
+        new Request("http://localhost/do/orders/o1/cancel", {
+          method: "POST",
+          headers: { "x-event-id": eventId },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const [orderUpdate, trimmed] = await queue.take(2);
+      expect(orderUpdate.type).toBe("ORDER_UPDATED");
+      expect(trimmed.type).toBe("QUEUE_UPDATED");
+      expect(trimmed.queue).toEqual([]);
     });
   });
 });

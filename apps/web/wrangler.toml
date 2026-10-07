@@ -3,6 +3,10 @@ compatibility_date = "2026-04-04"
 main = "./worker.ts"
 assets = { directory = "./build/client" }
 
+[vars]
+# 店舗固定QRのURLに使う公開トークン。店舗ごとに変更してデプロイする。
+MOBILE_ORDER_STORE_TOKEN = "7c6a1b0e9d4f2a8c5e1b7d3f9a6c0e2d"
+
 # react-router build の出力へ差し替え（wrangler deploy / wrangler dev のバンドル用）
 [alias]
 "virtual:react-router/server-build" = "./build/server/index.js"
