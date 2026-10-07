@@ -15,6 +15,7 @@ import {
   isValidMobileStoreToken,
   MobileOrderClosedError,
   MobileOrderConflictError,
+  MobileOrderItemUnavailableError,
 } from "~/features/mobile-order/actions";
 import {
   confirmedMobileOrderSchema,
@@ -76,6 +77,9 @@ export async function action({ request, params, context }: Route.ActionArgs) {
     }
     if (error instanceof MobileOrderConflictError) {
       return { ok: false as const, error: error.message, code: "CONFLICT" as const };
+    }
+    if (error instanceof MobileOrderItemUnavailableError) {
+      return { ok: false as const, error: error.message, code: "ITEM_UNAVAILABLE" as const };
     }
     if (error instanceof Response) return { ok: false as const, error: "店舗が見つかりません。" };
     console.error("Mobile order creation failed", error);
@@ -168,6 +172,20 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
     }
     void navigate(`/mobile/orders/${publicToken}`, { replace: true });
   }, [actionData, navigate, storageKey]);
+
+  useEffect(() => {
+    // code 付きのエラーは、この送信で注文が作られていないことが確定している。
+    // 保留注文を解除し、新しい受付キーで修正・再送できるようにする。
+    // code のないエラーは保存結果が不明なため、同じ受付キーでの再送に備えて保留注文を残す。
+    if (!actionData || actionData.ok || !("code" in actionData)) return;
+    try {
+      window.localStorage.removeItem(storageKey);
+    } catch {
+      // 保存領域が使えない場合も、画面上の保留状態は解除する。
+    }
+    idempotencyKey.current = crypto.randomUUID();
+    setHasPendingSubmission(false);
+  }, [actionData, storageKey]);
 
   const quantities = useMemo(
     () => new Map(cart.map((item) => [item.menuItemId, item.quantity])),
