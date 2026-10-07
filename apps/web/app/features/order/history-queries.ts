@@ -122,32 +122,33 @@ export async function getRecentOrders(
  * 件数は通常 0〜数件想定なのでページングは省く。
  */
 export async function getLeftoverOrders(db: Db, today: string): Promise<LeftoverOrder[]> {
+  const isLeftover = and(
+    lt(orders.businessDate, today),
+    inArray(orders.status, ["pending", "brewing", "ready"]),
+  );
   const rows = await db
     .select()
     .from(orders)
-    .where(
-      and(lt(orders.businessDate, today), inArray(orders.status, ["pending", "brewing", "ready"])),
-    )
+    .where(isLeftover)
     .orderBy(asc(orders.businessDate), asc(orders.orderNumber));
 
   if (rows.length === 0) return [];
 
-  const orderIds = rows.map((o) => o.id);
+  // D1 はバインド変数が 1 クエリ 100 個までなので、注文 ID を IN 句に並べず
+  // 同じ条件で orders と JOIN して明細を取る（閉じ忘れが 1 日分溜まっても失敗しない）。
   const items = await db
-    .select()
+    .select({
+      id: orderItems.id,
+      orderId: orderItems.orderId,
+      menuItemId: orderItems.menuItemId,
+      quantity: orderItems.quantity,
+      menuName: menuItems.name,
+    })
     .from(orderItems)
-    .where(inArray(orderItems.orderId, orderIds))
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .leftJoin(menuItems, eq(menuItems.id, orderItems.menuItemId))
+    .where(isLeftover)
     .orderBy(asc(orderItems.createdAt), asc(orderItems.id));
-
-  const menuIds = [...new Set(items.map((i) => i.menuItemId))];
-  const menus =
-    menuIds.length > 0
-      ? await db
-          .select({ id: menuItems.id, name: menuItems.name })
-          .from(menuItems)
-          .where(inArray(menuItems.id, menuIds))
-      : [];
-  const menuNameById = new Map(menus.map((m) => [m.id, m.name]));
 
   const itemsByOrderId = new Map<string, HistoryOrderItem[]>();
   for (const it of items) {
@@ -155,7 +156,7 @@ export async function getLeftoverOrders(db: Db, today: string): Promise<Leftover
     list.push({
       id: it.id,
       menuItemId: it.menuItemId,
-      name: menuNameById.get(it.menuItemId) ?? "(削除済み)",
+      name: it.menuName ?? "(削除済み)",
       quantity: it.quantity,
     });
     itemsByOrderId.set(it.orderId, list);

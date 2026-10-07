@@ -297,4 +297,26 @@ describe("getLeftoverOrders", () => {
     const result = await getLeftoverOrders(d1Db, "2026-05-04");
     expect(result.map((o) => o.id)).toEqual(["o-d1-1", "o-d1-2", "o-d2"]);
   });
+
+  it("D1 のバインド上限 (100) を超える件数が残っていても全件を返す", async () => {
+    // 1 日分まとめて閉じ忘れたケース。注文 ID をクエリに並べると上限を超える件数にする。
+    const count = 120;
+    for (let n = 1; n <= count; n++) {
+      await seedOrder(db, {
+        id: `o-many-${n}`,
+        orderNumber: n,
+        createdAt: "2026-05-02 10:00:00",
+        status: "pending",
+        items: [{ id: `i-many-${n}`, menuItemId: "menu-1", quantity: 1 }],
+      });
+    }
+
+    const result = await getLeftoverOrders(d1Db, "2026-05-04");
+    expect(result).toHaveLength(count);
+    expect(result.every((o) => o.items.length === 1)).toBe(true);
+    expect(result[count - 1].items[0]).toMatchObject({
+      id: `i-many-${count}`,
+      name: "ブレンドコーヒー",
+    });
+  });
 });

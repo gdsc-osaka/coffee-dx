@@ -1,5 +1,5 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "~/components/ui/dialog";
@@ -33,37 +33,75 @@ const statusLabel: Record<OrderStatus, string> = {
   cancelled: "キャンセル",
 };
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 次に JST の日付が変わるまでのミリ秒。営業日 (getBusinessDate) と同じ JST 基準で数える。 */
+export function msUntilNextJstDay(now: number): number {
+  return DAY_MS - ((now + JST_OFFSET_MS) % DAY_MS);
+}
+
 export function LeftoverOrdersBanner() {
   const [orders, setOrders] = useState<LeftoverOrder[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const fetcher = useFetcher<{ ok: boolean; orderId?: string; error?: string }>();
+  // 取得が重なったとき、古い応答で新しい一覧を上書きしないよう最新の取得だけを反映する。
+  const latestRequestId = useRef(0);
 
   const refetch = useCallback(async () => {
+    const requestId = ++latestRequestId.current;
     setIsLoading(true);
     setFetchError(null);
     try {
       const res = await fetch("/cashier/leftover-orders");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as LoaderResponse;
-      setOrders(data.orders);
+      if (requestId === latestRequestId.current) setOrders(data.orders);
     } catch {
-      setFetchError("やり残し注文の取得に失敗しました");
+      if (requestId === latestRequestId.current) {
+        setFetchError("やり残し注文の取得に失敗しました");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === latestRequestId.current) setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refetch();
+    void refetch();
+
+    // 画面を開いたままでも最新にするため、表示に戻ったときと JST の日付が変わった直後に取り直す。
+    // 日付が変わると前日の未完了注文がやり残しになり、スリープ中はタイマーが遅れることがある。
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refetch();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let timeoutId: number | undefined;
+    const scheduleNextDayRefetch = () => {
+      timeoutId = window.setTimeout(
+        () => {
+          void refetch();
+          scheduleNextDayRefetch();
+        },
+        msUntilNextJstDay(Date.now()) + 1_000,
+      );
+    };
+    scheduleNextDayRefetch();
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearTimeout(timeoutId);
+    };
   }, [refetch]);
 
-  // 完了/キャンセル成功後はリストを再取得して件数を更新する。
-  // 失敗時 (ok: false) はリストを残したまま fetcher.data.error をダイアログに表示する。
+  // 完了/キャンセルの結果が返ったら、成否にかかわらず一覧を取り直す。
+  // 他の端末で処理済みの注文は失敗 (404) になるため、取り直さないと一覧に残り続ける。
+  // 失敗時は fetcher.data.error をダイアログに表示したままにする。
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
-      refetch();
+    if (fetcher.state === "idle" && fetcher.data) {
+      void refetch();
     }
   }, [fetcher.state, fetcher.data, refetch]);
 
@@ -90,6 +128,25 @@ export function LeftoverOrdersBanner() {
             onClick={() => setIsOpen(true)}
           >
             確認する
+          </Button>
+        </div>
+      )}
+
+      {/* 取得に失敗すると件数が分からないため、「やり残しなし」と誤解されないよう明示する */}
+      {orders.length === 0 && fetchError && !isLoading && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-3 flex items-center gap-3">
+          <AlertTriangle className="size-4 text-red-600 shrink-0" />
+          <p className="flex-1 min-w-0 text-sm font-medium text-red-900">
+            過去日のやり残し注文を確認できませんでした
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="bg-white text-red-900 border-red-300 hover:bg-red-100 shrink-0"
+            onClick={() => void refetch()}
+          >
+            再読み込み
           </Button>
         </div>
       )}

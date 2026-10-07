@@ -94,7 +94,13 @@ export async function action({ request, context }: Route.ActionArgs) {
     await callOrderDO(stub, eventId, path, { method: "POST" });
     return { ok: true, orderId };
   } catch (e) {
-    const isConflict = e instanceof Error && e.message.includes("DO error 409");
+    const message = e instanceof Error ? e.message : "";
+    // DO は未完了の注文だけをメモリに持つため、他の端末で完了・取消済みの注文は 404 になる。
+    // 再試行しても解消しないので、処理済みであることを伝える。
+    if (message.includes("DO error 404")) {
+      return { ok: false, error: "この注文はすでに完了または取り消されています。" };
+    }
+    const isConflict = message.includes("DO error 409");
     if (intent === "cancel") {
       return {
         ok: false,
@@ -479,7 +485,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
         </div>
       </header>
 
-      {/* 過去日のやり残し注文バナー (件数 > 0 のときだけ表示) */}
+      {/* 過去日のやり残し注文バナー (件数 > 0 か、取得に失敗したときだけ表示) */}
       <LeftoverOrdersBanner />
 
       {/* Content */}
