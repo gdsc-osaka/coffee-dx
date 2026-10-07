@@ -1,4 +1,13 @@
-import { AlertCircle, Battery, BatteryLow, Bluetooth, History, Settings } from "lucide-react";
+import {
+  AlertCircle,
+  Battery,
+  BatteryLow,
+  Bluetooth,
+  History,
+  Package,
+  Settings,
+} from "lucide-react";
+import { Link } from "react-router";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import type { PrinterStatus } from "lx-printer/lx-d02";
 
@@ -64,6 +73,13 @@ export function CashierHeader({
           >
             <History className="size-3 text-stone-400" />
           </button>
+          <Link
+            to="/order/menu-items"
+            aria-label="商品登録を開く"
+            className="p-1 hover:bg-stone-800 rounded transition-colors"
+          >
+            <Package className="size-3 text-stone-400" />
+          </Link>
           <button
             type="button"
             onClick={onOpenSettings}

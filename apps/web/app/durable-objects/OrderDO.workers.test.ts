@@ -99,11 +99,26 @@ describe("OrderDO", () => {
       .values([{ id, businessDate, orderNumber, status, createdAt: now, updatedAt: now }]);
   };
 
-  const insertOrderItem = (id: string, orderId: string, menuItemId: string, quantity: number) => {
+  const insertOrderItem = (
+    id: string,
+    orderId: string,
+    menuItemId: string,
+    quantity: number,
+    fulfillmentTypeAtOrder: "brew" | "direct" = "brew",
+  ) => {
     const now = isoNow();
-    return db
-      .insert(orderItems)
-      .values([{ id, orderId, menuItemId, quantity, createdAt: now, updatedAt: now }]);
+    return db.insert(orderItems).values([
+      {
+        id,
+        orderId,
+        menuItemId,
+        unitPriceAtOrder: 100,
+        fulfillmentTypeAtOrder,
+        quantity,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
   };
 
   // ---------------------------------------------------------------------------
@@ -384,41 +399,96 @@ describe("OrderDO", () => {
   // handleBatchComplete: BREW_UNIT_UPDATED + ORDER_UPDATED
   // ---------------------------------------------------------------------------
 
-  it("バッチ完了で ready 遷移と紐付けが発生し、BREW_UNIT_UPDATED と ORDER_UPDATED がブロードキャストされる", async () => {
-    await insertMenu("m1", "coffee");
-    await insertOrder("o1", 101, "pending");
-    await insertOrderItem("i1", "o1", "m1", 1); // 1 杯だけ必要
+  it("brewとdirectの混在注文はbrewだけを紐付け、バッチ完了でreadyへ遷移する", async () => {
+    // CI の 5 秒 timeout より先に失敗させ、待機中の処理をエラー本文に残す。
+    const startedAt = Date.now();
+    const completedSteps: string[] = [];
+    const trace = async <T>(label: string, run: () => Promise<T>): Promise<T> => {
+      const stepStartedAt = Date.now();
+      console.info(`[OrderDO mixed] START ${label} (+${stepStartedAt - startedAt}ms)`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const timeout = new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => {
+              reject(
+                new Error(
+                  `[OrderDO mixed] stopped at "${label}" after ${Date.now() - startedAt}ms; completed: ${completedSteps.join(" -> ") || "none"}`,
+                ),
+              );
+            },
+            Math.max(1, 4500 - (stepStartedAt - startedAt)),
+          );
+        });
+        const result = await Promise.race([Promise.resolve().then(run), timeout]);
+        completedSteps.push(`${label} (${Date.now() - stepStartedAt}ms)`);
+        console.info(`[OrderDO mixed] DONE ${label} (${Date.now() - stepStartedAt}ms)`);
+        return result;
+      } catch (error) {
+        console.error(`[OrderDO mixed] ERROR ${label} (${Date.now() - stepStartedAt}ms)`, error);
+        throw error;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
 
-    const ws = await connectWebSocket();
-    const queue = createMessageQueue(ws);
-    ws.accept();
-    await queue.next(); // SNAPSHOT
-
-    // バッチ生成 (2 杯)
-    await stub.fetch(
-      new Request("http://localhost/do/brew-units", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-event-id": eventId },
-        body: JSON.stringify({ menuItemId: "m1", count: 2 }),
+    await trace("insert brew menu", async () => insertMenu("m1", "coffee"));
+    await trace("insert direct menu", async () =>
+      db.insert(menuItems).values({
+        id: "retail-1",
+        name: "biscuit",
+        price: 200,
+        fulfillmentType: "direct",
+        isAvailable: 1,
       }),
     );
-    const created = await queue.next();
+    await trace("insert order", async () => insertOrder("o1", 101, "pending"));
+    await trace("insert brew item", async () => insertOrderItem("i1", "o1", "m1", 1));
+    await trace("insert direct item", async () =>
+      insertOrderItem("i-direct", "o1", "retail-1", 1, "direct"),
+    );
+
+    const ws = await trace("connect WebSocket", connectWebSocket);
+    const queue = createMessageQueue(ws);
+    ws.accept();
+    const snapshot = await trace("receive SNAPSHOT", queue.next);
+    expect(snapshot.type).toBe("SNAPSHOT");
+
+    // バッチ生成 (2 杯)
+    const createResponse = await trace("create brew batch", () =>
+      stub.fetch(
+        new Request("http://localhost/do/brew-units", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-event-id": eventId },
+          body: JSON.stringify({ menuItemId: "m1", count: 2 }),
+        }),
+      ),
+    );
+    expect(createResponse.status).toBe(204);
+    const created = await trace("receive BREW_UNITS_CREATED", queue.next);
     expect(created.type).toBe("BREW_UNITS_CREATED");
     const batchId = created.brewUnits[0].batchId;
 
     // バッチ完了
-    const res = await stub.fetch(
-      new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
-        method: "POST",
-        headers: { "x-event-id": eventId },
-      }),
+    const res = await trace("complete brew batch", () =>
+      stub.fetch(
+        new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
+          method: "POST",
+          headers: { "x-event-id": eventId },
+        }),
+      ),
     );
     expect(res.status).toBe(200);
 
     // 期待されるブロードキャスト:
     //   - BREW_UNIT_UPDATED × 2 (バッチ内 2 ユニット brewing→ready, 1 件は紐付き、1 件は余剰)
     //   - ORDER_UPDATED × 1 (pending→ready)
-    const messages = await queue.take(3);
+    const messages: any[] = [];
+    for (let index = 0; index < 3; index++) {
+      const message = await trace(`receive batch update ${index + 1}/3`, queue.next);
+      console.info(`[OrderDO mixed] MESSAGE ${index + 1}/3 ${message.type}`);
+      messages.push(message);
+    }
     const unitUpdates = messages.filter((m) => m.type === "BREW_UNIT_UPDATED");
     const orderUpdates = messages.filter((m) => m.type === "ORDER_UPDATED");
 
@@ -432,25 +502,34 @@ describe("OrderDO", () => {
     expect(orderUpdates[0].status).toBe("ready");
 
     // DB 確認
-    const completedUnits = await db.select().from(brewUnits);
+    const completedUnits = await trace("read completed units", async () =>
+      db.select().from(brewUnits),
+    );
     expect(completedUnits).toHaveLength(2);
     expect(completedUnits.every((u) => u.status === "ready")).toBe(true);
     expect(completedUnits.filter((u) => u.orderItemId === "i1")).toHaveLength(1);
+    expect(completedUnits.filter((u) => u.orderItemId === "i-direct")).toHaveLength(0);
     expect(completedUnits.filter((u) => u.orderItemId === null)).toHaveLength(1);
 
-    const updatedOrder = await db.select().from(orders).where(eq(orders.id, "o1"));
+    const updatedOrder = await trace("read ready order", async () =>
+      db.select().from(orders).where(eq(orders.id, "o1")),
+    );
     expect(updatedOrder[0].status).toBe("ready");
 
     // 応答喪失などで同じ完了操作が再送されても、404にせず同じ結果を返す。
-    const retry = await stub.fetch(
-      new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
-        method: "POST",
-        headers: { "x-event-id": eventId },
-      }),
+    const retry = await trace("retry batch completion", () =>
+      stub.fetch(
+        new Request(`http://localhost/do/brew-units/batch/${batchId}/complete`, {
+          method: "POST",
+          headers: { "x-event-id": eventId },
+        }),
+      ),
     );
     expect(retry.status).toBe(200);
 
-    const retriedUnits = await db.select().from(brewUnits);
+    const retriedUnits = await trace("read units after retry", async () =>
+      db.select().from(brewUnits),
+    );
     expect(retriedUnits).toHaveLength(2);
     expect(retriedUnits.filter((u) => u.orderItemId === "i1")).toHaveLength(1);
   });

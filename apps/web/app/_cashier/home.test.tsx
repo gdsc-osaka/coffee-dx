@@ -11,6 +11,11 @@ vi.mock("react-router", () => ({
   Form: ({ children, ...props }: React.ComponentProps<"form">) => (
     <form {...props}>{children}</form>
   ),
+  Link: ({ children, to, ...props }: React.ComponentProps<"a"> & { to: string }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
   useActionData: useActionDataMock,
   useNavigation: useNavigationMock,
 }));
@@ -36,6 +41,8 @@ type ServerMessage =
           id: string;
           orderId: string;
           menuItemId: string;
+          unitPriceAtOrder?: number;
+          fulfillmentTypeAtOrder?: "brew" | "direct";
           quantity: number;
           name?: string;
           createdAt: string;
@@ -104,6 +111,8 @@ function buildOrder({
         id: `${id}-item`,
         orderId: id,
         menuItemId: "menu-1",
+        unitPriceAtOrder: 350,
+        fulfillmentTypeAtOrder: "brew" as "brew" | "direct",
         quantity: 1,
         name: "アメリカーノ",
         createdAt: ts,
@@ -198,6 +207,35 @@ describe("CashierHome", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
       expect(screen.getByText("進行中の注文はありません")).toBeInTheDocument();
+    });
+  });
+
+  it("direct商品を抽出待ちにせず、注文時単価を表示する", async () => {
+    const order = buildOrder({ id: "mixed", orderNumber: 20, status: "pending" });
+    order.items.push({
+      id: "mixed-direct",
+      orderId: "mixed",
+      menuItemId: "retail-1",
+      unitPriceAtOrder: 200,
+      fulfillmentTypeAtOrder: "direct",
+      quantity: 1,
+      name: "ビスケット",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    render(<CashierHome {...({ loaderData: { eventId: "2026-04-18" } } as any)} />);
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws.emitMessage({ type: "SNAPSHOT", orders: [order], brewUnits: [] });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("ビスケット")).toBeInTheDocument();
+      expect(screen.getByText("受渡済")).toBeInTheDocument();
+      expect(screen.getByText("¥200")).toBeInTheDocument();
+      expect(screen.getByText("合計 ¥550")).toBeInTheDocument();
     });
   });
 });

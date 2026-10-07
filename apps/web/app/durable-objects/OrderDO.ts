@@ -21,7 +21,11 @@ type OrderItemData = {
   id: string;
   orderId: string;
   menuItemId: string;
+  /** 旧イベントの payload では未指定。 */
+  unitPriceAtOrder?: number;
   quantity: number;
+  /** 旧イベントの payload では未指定のため、未指定は brew として扱う。 */
+  fulfillmentTypeAtOrder?: "brew" | "direct";
   name?: string;
   createdAt: string;
   updatedAt: string;
@@ -251,7 +255,14 @@ export class OrderDurableObject implements DurableObject {
         for (const item of allItems) {
           if (!itemsByOrderId.has(item.orderId)) itemsByOrderId.set(item.orderId, []);
           itemsByOrderId.get(item.orderId)!.push({
-            ...item,
+            id: item.id,
+            orderId: item.orderId,
+            menuItemId: item.menuItemId,
+            unitPriceAtOrder: item.unitPriceAtOrder,
+            quantity: item.quantity,
+            fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
             name: menuNameById.get(item.menuItemId),
           });
         }
@@ -403,7 +414,9 @@ export class OrderDurableObject implements DurableObject {
         id: item.id,
         orderId: item.orderId,
         menuItemId: item.menuItemId,
+        unitPriceAtOrder: item.unitPriceAtOrder,
         quantity: item.quantity,
+        fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
         name: menuNames.get(item.menuItemId),
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -469,10 +482,19 @@ export class OrderDurableObject implements DurableObject {
         const orderId = crypto.randomUUID();
         const orderItemIds = itemRows.results.map(() => crypto.randomUUID());
         const statements: D1PreparedStatement[] = [
+          // direct 商品だけの注文は会計時に受け渡すため、抽出を待たず completed で作成する。
           this.env.DB.prepare(
             `INSERT INTO orders
                (id, business_date, order_number, status, is_free, mobile_request_id, created_at, updated_at)
-             SELECT ?, ?, ?, 'pending', 0, ?, ?, ?
+             SELECT ?, ?, ?,
+                    CASE WHEN EXISTS (
+                      SELECT 1
+                        FROM mobile_order_request_items AS request_item
+                        LEFT JOIN menu_items AS menu ON menu.id = request_item.menu_item_id
+                       WHERE request_item.request_id = ?
+                         AND COALESCE(menu.fulfillment_type, 'brew') <> 'direct'
+                    ) THEN 'pending' ELSE 'completed' END,
+                    0, ?, ?, ?
                FROM mobile_order_requests
               WHERE id = ? AND status = 'awaiting_payment' AND accepted_order_id IS NULL
                 AND business_date = ?
@@ -483,6 +505,7 @@ export class OrderDurableObject implements DurableObject {
             orderId,
             request.businessDate,
             request.orderNumber,
+            requestId,
             requestId,
             now,
             now,
@@ -496,11 +519,15 @@ export class OrderDurableObject implements DurableObject {
           const item = itemRows.results[i];
           statements.push(
             this.env.DB.prepare(
+              // 単価は受付時に確定した値を、提供種別は会計時点の商品マスタの値を明細に固定する。
               `INSERT INTO order_items
-                 (id, order_id, menu_item_id, quantity, created_at, updated_at)
-               SELECT ?, ?, menu_item_id, quantity, ?, ?
-                 FROM mobile_order_request_items
-                WHERE id = ? AND request_id = ?
+                 (id, order_id, menu_item_id, unit_price_at_order, fulfillment_type_at_order,
+                  quantity, created_at, updated_at)
+               SELECT ?, ?, request_item.menu_item_id, request_item.unit_price_at_order,
+                      COALESCE(menu.fulfillment_type, 'brew'), request_item.quantity, ?, ?
+                 FROM mobile_order_request_items AS request_item
+                 LEFT JOIN menu_items AS menu ON menu.id = request_item.menu_item_id
+                WHERE request_item.id = ? AND request_item.request_id = ?
                   AND EXISTS (
                     SELECT 1 FROM orders WHERE id = ? AND mobile_request_id = ?
                   )`,
@@ -599,6 +626,8 @@ export class OrderDurableObject implements DurableObject {
     let anyAssigned = false;
 
     for (const item of order.items) {
+      if (item.fulfillmentTypeAtOrder === "direct") continue;
+
       const alreadyLinked = [...this.brewUnits.values()].filter(
         (u) => u.orderItemId === item.id && u.status === "ready",
       ).length;
@@ -765,6 +794,8 @@ export class OrderDurableObject implements DurableObject {
 
       for (const order of activeOrders) {
         for (const item of order.items) {
+          if (item.fulfillmentTypeAtOrder === "direct") continue;
+
           const pool = poolByMenu.get(item.menuItemId);
           if (!pool || pool.length === 0) continue;
 
@@ -786,6 +817,8 @@ export class OrderDurableObject implements DurableObject {
       // 再送時も全 active order を評価することで、以前の部分成功状態を自己修復できる。
       const readyOrders = activeOrders.filter((order) =>
         order.items.every((item) => {
+          if (item.fulfillmentTypeAtOrder === "direct") return true;
+
           const linked = [...this.brewUnits.values()].filter(
             (u) => u.orderItemId === item.id && u.status === "ready",
           ).length;
@@ -999,7 +1032,9 @@ export class OrderDurableObject implements DurableObject {
     );
 
     const allReady = order.items.every(
-      (item) => linkedReady.filter((u) => u.orderItemId === item.id).length >= item.quantity,
+      (item) =>
+        item.fulfillmentTypeAtOrder === "direct" ||
+        linkedReady.filter((u) => u.orderItemId === item.id).length >= item.quantity,
     );
 
     if (allReady && order.status !== "ready") {
@@ -1123,7 +1158,7 @@ export class OrderDurableObject implements DurableObject {
     const menus = await db
       .select({ id: menuItems.id })
       .from(menuItems)
-      .where(eq(menuItems.isAvailable, 1))
+      .where(and(eq(menuItems.isAvailable, 1), eq(menuItems.fulfillmentType, "brew")))
       .orderBy(asc(menuItems.createdAt), asc(menuItems.id));
     if (menus.length === 0) return;
 

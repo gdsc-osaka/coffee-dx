@@ -40,11 +40,16 @@ describe("OrderDO mobile order payment", () => {
     await db.delete(menuItems);
   });
 
-  const createRequest = async (status: "awaiting_payment" | "cancelled" = "awaiting_payment") => {
+  const createRequest = async (
+    status: "awaiting_payment" | "cancelled" = "awaiting_payment",
+    items: Array<{ menuItemId: string; quantity: number }> = [{ menuItemId: "m1", quantity: 2 }],
+  ) => {
     const now = `${eventId} 10:00:00`;
     const requestId = crypto.randomUUID();
-    const itemId = crypto.randomUUID();
-    await db.insert(menuItems).values({ id: "m1", name: "Coffee", price: 500, isAvailable: 1 });
+    await db.insert(menuItems).values([
+      { id: "m1", name: "Coffee", price: 500, isAvailable: 1 },
+      { id: "d1", name: "Cookie", price: 200, isAvailable: 1, fulfillmentType: "direct" },
+    ]);
     await db.insert(mobileOrderRequests).values({
       id: requestId,
       storeToken: "store-token",
@@ -56,15 +61,17 @@ describe("OrderDO mobile order payment", () => {
       createdAt: now,
       updatedAt: now,
     });
-    await db.insert(mobileOrderRequestItems).values({
-      id: itemId,
-      requestId,
-      menuItemId: "m1",
-      itemNameAtOrder: "Coffee",
-      unitPriceAtOrder: 500,
-      quantity: 2,
-      createdAt: now,
-    });
+    await db.insert(mobileOrderRequestItems).values(
+      items.map((item) => ({
+        id: crypto.randomUUID(),
+        requestId,
+        menuItemId: item.menuItemId,
+        itemNameAtOrder: item.menuItemId === "m1" ? "Coffee" : "Cookie",
+        unitPriceAtOrder: item.menuItemId === "m1" ? 500 : 200,
+        quantity: item.quantity,
+        createdAt: now,
+      })),
+    );
     return requestId;
   };
 
@@ -101,6 +108,8 @@ describe("OrderDO mobile order payment", () => {
       id: crypto.randomUUID(),
       orderId,
       menuItemId: "m1",
+      unitPriceAtOrder: 500,
+      fulfillmentTypeAtOrder: "brew",
       quantity: 2,
       createdAt: now,
       updatedAt: now,
@@ -390,5 +399,56 @@ describe("OrderDO mobile order payment", () => {
       orderStatus: "completed",
       businessDate: eventId,
     });
+  });
+  it("direct商品だけの会計は抽出を待たずcompletedで注文を作成する", async () => {
+    const requestId = await createRequest("awaiting_payment", [{ menuItemId: "d1", quantity: 1 }]);
+    const paid = await post(requestId, "pay");
+    expect(paid.status).toBe(200);
+    const { orderId } = (await paid.json()) as { orderId: string };
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order.status).toBe("completed");
+    const savedItems = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    expect(savedItems).toMatchObject([{ unitPriceAtOrder: 200, fulfillmentTypeAtOrder: "direct" }]);
+  });
+
+  it("brewとdirectの混在会計は、brew商品の抽出完了でreadyになる", async () => {
+    const requestId = await createRequest("awaiting_payment", [
+      { menuItemId: "m1", quantity: 2 },
+      { menuItemId: "d1", quantity: 1 },
+    ]);
+    const paid = await post(requestId, "pay");
+    expect(paid.status).toBe(200);
+    const { orderId } = (await paid.json()) as { orderId: string };
+
+    const savedItems = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    expect(
+      savedItems
+        .map((item) => [item.menuItemId, item.unitPriceAtOrder, item.fulfillmentTypeAtOrder])
+        .sort(),
+    ).toEqual([
+      ["d1", 200, "direct"],
+      ["m1", 500, "brew"],
+    ]);
+
+    const started = await getStub().fetch(
+      new Request("https://do/do/brew-units", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-event-id": eventId },
+        body: JSON.stringify({ menuItemId: "m1", count: 2 }),
+      }),
+    );
+    expect(started.status).toBe(204);
+    const [unit] = await db.select().from(brewUnits);
+    const completed = await getStub().fetch(
+      new Request(`https://do/do/brew-units/batch/${unit.batchId}/complete`, {
+        method: "POST",
+        headers: { "x-event-id": eventId },
+      }),
+    );
+    expect(completed.status).toBe(200);
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
+    expect(order.status).toBe("ready");
   });
 });

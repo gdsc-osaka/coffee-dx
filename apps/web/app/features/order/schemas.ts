@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const cartItemSchema = z.object({
   menuItemId: z.string().min(1),
+  unitPriceAtOrder: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
   quantity: z.int().positive(),
 });
 

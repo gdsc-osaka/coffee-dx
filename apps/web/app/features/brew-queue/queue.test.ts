@@ -70,6 +70,22 @@ function withOneEmptySlot(orders: QueueOrder[]) {
 }
 
 describe("computePendingOrders", () => {
+  it("direct items are excluded from the brew queue", () => {
+    const o = order("10:20:00", [1, 0]);
+    o.items.push({
+      id: "item-direct",
+      menuItemId: C,
+      quantity: 2,
+      fulfillmentTypeAtOrder: "direct",
+    });
+
+    const result = computePendingOrders([o], [], [], [A, B, C]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].pending.get(A)).toBe(1);
+    expect(result[0].pending.has(C)).toBe(false);
+  });
+
   it("抽出中を割り当ててから、対応予定を古い注文から順に割り当てる", () => {
     const o1 = order("10:20:00", [2, 0]);
     const o2 = order("10:21:00", [2, 0]);

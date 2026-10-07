@@ -8,8 +8,12 @@ type Db = ReturnType<typeof createDb>;
 
 export type CartItem = {
   menuItemId: string;
-  name: string;
-  price: number;
+  /** UI表示用。注文の確定値としては使用しない。 */
+  name?: string;
+  /** 旧クライアント互換用。注文の確定値としては使用しない。 */
+  price?: number;
+  /** 未指定の場合は menu_items.price を使用する。 */
+  unitPriceAtOrder?: number;
   quantity: number;
 };
 
@@ -22,6 +26,31 @@ export async function createOrder(
   const businessDate = getBusinessDate();
   const now = getJstNowString();
   const isFree = options?.isFree ?? false;
+
+  if (cartItems.length === 0) {
+    throw new Error("Cart must not be empty");
+  }
+
+  const menuItemIds = [...new Set(cartItems.map((item) => item.menuItemId))];
+  const menuItemRecords = await db
+    .select()
+    .from(menuItems)
+    .where(inArray(menuItems.id, menuItemIds));
+  const menuItemMap = new Map(menuItemRecords.map((m) => [m.id, m]));
+
+  for (const item of cartItems) {
+    const menuItem = menuItemMap.get(item.menuItemId);
+    if (!menuItem) throw new Error(`Menu item not found: ${item.menuItemId}`);
+    if (menuItem.isAvailable !== 1) throw new Error(`Menu item is unavailable: ${item.menuItemId}`);
+    if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+      throw new Error("Quantity must be a positive integer");
+    }
+
+    const unitPrice = item.unitPriceAtOrder ?? menuItem.price;
+    if (!Number.isSafeInteger(unitPrice) || unitPrice < 0) {
+      throw new Error("Unit price must be a non-negative integer");
+    }
+  }
 
   // 注文番号採番（UPSERT + RETURNING で原子的にインクリメント済み値を取得）
   //
@@ -45,23 +74,21 @@ export async function createOrder(
   const orderId = crypto.randomUUID();
 
   // orderItems に使う ID を事前に生成（DO 通知と同じ ID を使うため）
-  const orderItemsData = cartItems.map((item) => ({
-    id: crypto.randomUUID(),
-    orderId,
-    menuItemId: item.menuItemId,
-    quantity: item.quantity,
-    createdAt: now,
-    updatedAt: now,
-  }));
-
-  // メニュー情報を取得してDOに渡す
-  const menuItemIds = cartItems.map((item) => item.menuItemId);
-  const menuItemRecords = await db
-    .select()
-    .from(menuItems)
-    .where(inArray(menuItems.id, menuItemIds));
-
-  const menuItemMap = new Map(menuItemRecords.map((m) => [m.id, m]));
+  const orderItemsData = cartItems.map((item) => {
+    const menuItem = menuItemMap.get(item.menuItemId)!;
+    return {
+      id: crypto.randomUUID(),
+      orderId,
+      menuItemId: item.menuItemId,
+      unitPriceAtOrder: item.unitPriceAtOrder ?? menuItem.price,
+      fulfillmentTypeAtOrder: menuItem.fulfillmentType,
+      quantity: item.quantity,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+  const hasBrewItems = orderItemsData.some((item) => item.fulfillmentTypeAtOrder === "brew");
+  const initialStatus = hasBrewItems ? "pending" : "completed";
 
   // orders + orderItems をアトミックに INSERT する（D1 は batch 内のクエリを 1 トランザクションで実行する）
   // これにより orderItems INSERT 失敗時に orders だけが孤児として残るケースを防ぐ。
@@ -70,13 +97,18 @@ export async function createOrder(
       id: orderId,
       businessDate,
       orderNumber,
-      status: "pending",
+      status: initialStatus,
       isFree: isFree ? 1 : 0,
       createdAt: now,
       updatedAt: now,
     }),
     db.insert(orderItems).values(orderItemsData),
   ]);
+
+  // direct商品のみの注文は抽出処理が不要なのでDOに通知しない。
+  if (!hasBrewItems) {
+    return { orderId, orderNumber, createdAt: parseJstString(now), isFree };
+  }
 
   // DO に新規注文を通知（失敗時は D1 の注文を削除して整合性を保つ）
   const stub = getOrderDOStub(env, businessDate);
@@ -85,7 +117,7 @@ export async function createOrder(
       body: {
         id: orderId,
         orderNumber,
-        status: "pending",
+        status: initialStatus,
         isFree,
         createdAt: now,
         updatedAt: now,

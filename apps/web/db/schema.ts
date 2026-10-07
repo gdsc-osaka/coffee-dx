@@ -4,15 +4,22 @@ import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-o
 /** JST 相当（SQLite の datetime 式）。設計どおり `datetime('now', '+9 hours')` */
 const jstNow = sql`(datetime('now', '+9 hours'))`;
 
-export const menuItems = sqliteTable("menu_items", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  price: integer("price").notNull(),
-  description: text("description"),
-  isAvailable: integer("is_available").notNull().default(1),
-  createdAt: text("created_at").notNull().default(jstNow),
-  updatedAt: text("updated_at").notNull().default(jstNow),
-});
+export const menuItems = sqliteTable(
+  "menu_items",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    price: integer("price").notNull(),
+    fulfillmentType: text("fulfillment_type").notNull().default("brew"),
+    description: text("description"),
+    isAvailable: integer("is_available").notNull().default(1),
+    createdAt: text("created_at").notNull().default(jstNow),
+    updatedAt: text("updated_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check("menu_items_fulfillment_type_check", sql`${t.fulfillmentType} IN ('brew','direct')`),
+  ],
+);
 
 /**
  * モバイルから送信された、会計前の注文。
@@ -115,18 +122,30 @@ export const orders = sqliteTable(
   ],
 );
 
-export const orderItems = sqliteTable("order_items", {
-  id: text("id").primaryKey(),
-  orderId: text("order_id")
-    .notNull()
-    .references(() => orders.id, { onDelete: "cascade" }),
-  menuItemId: text("menu_item_id")
-    .notNull()
-    .references(() => menuItems.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull().default(1),
-  createdAt: text("created_at").notNull().default(jstNow),
-  updatedAt: text("updated_at").notNull().default(jstNow),
-});
+export const orderItems = sqliteTable(
+  "order_items",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    menuItemId: text("menu_item_id")
+      .notNull()
+      .references(() => menuItems.id, { onDelete: "restrict" }),
+    unitPriceAtOrder: integer("unit_price_at_order").notNull(),
+    fulfillmentTypeAtOrder: text("fulfillment_type_at_order").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    createdAt: text("created_at").notNull().default(jstNow),
+    updatedAt: text("updated_at").notNull().default(jstNow),
+  },
+  (t) => [
+    check("order_items_unit_price_at_order_check", sql`${t.unitPriceAtOrder} >= 0`),
+    check(
+      "order_items_fulfillment_type_at_order_check",
+      sql`${t.fulfillmentTypeAtOrder} IN ('brew','direct')`,
+    ),
+  ],
+);
 
 export const orderNumberCounters = sqliteTable("order_number_counters", {
   businessDate: text("business_date").primaryKey(),

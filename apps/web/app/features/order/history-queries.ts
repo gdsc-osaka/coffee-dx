@@ -9,6 +9,8 @@ export type HistoryOrderItem = {
   id: string;
   menuItemId: string;
   name: string;
+  unitPriceAtOrder: number;
+  fulfillmentTypeAtOrder: "brew" | "direct";
   quantity: number;
 };
 
@@ -96,6 +98,8 @@ export async function getRecentOrders(
       id: it.id,
       menuItemId: it.menuItemId,
       name: menuNameById.get(it.menuItemId) ?? "(削除済み)",
+      unitPriceAtOrder: it.unitPriceAtOrder,
+      fulfillmentTypeAtOrder: it.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
       quantity: it.quantity,
     });
     itemsByOrderId.set(it.orderId, list);
@@ -141,6 +145,8 @@ export async function getLeftoverOrders(db: Db, today: string): Promise<Leftover
       id: orderItems.id,
       orderId: orderItems.orderId,
       menuItemId: orderItems.menuItemId,
+      unitPriceAtOrder: orderItems.unitPriceAtOrder,
+      fulfillmentTypeAtOrder: orderItems.fulfillmentTypeAtOrder,
       quantity: orderItems.quantity,
       menuName: menuItems.name,
     })
@@ -157,6 +163,8 @@ export async function getLeftoverOrders(db: Db, today: string): Promise<Leftover
       id: it.id,
       menuItemId: it.menuItemId,
       name: it.menuName ?? "(削除済み)",
+      unitPriceAtOrder: it.unitPriceAtOrder,
+      fulfillmentTypeAtOrder: it.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
       quantity: it.quantity,
     });
     itemsByOrderId.set(it.orderId, list);

@@ -2,6 +2,7 @@ import { $Font } from "bdfparser";
 
 export type ReceiptItem = {
   name: string;
+  unitPriceAtOrder?: number;
   quantity: number;
 };
 
@@ -141,7 +142,9 @@ export class ReceiptGenerator {
 
     // 注文内容描画 (右揃え, Y: 22, 44, ...)
     data.items.slice(0, 3).forEach((item, index) => {
-      const itemStr = `${item.name} x ${item.quantity}`;
+      const price =
+        item.unitPriceAtOrder === undefined ? "" : ` @${item.unitPriceAtOrder.toLocaleString()}`;
+      const itemStr = `${item.name}${price} x ${item.quantity}`;
       const itemBitmap = bdfFont.draw(itemStr);
       const itemTrueWidth = this.getBitmapTrueWidth(itemBitmap);
       const tCanvas = document.createElement("canvas");

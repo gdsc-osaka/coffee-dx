@@ -83,14 +83,14 @@ export type MenuBrewSummary = {
 
 import { createDb } from "~/lib/db";
 import { menuItems } from "~/../db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
   const menus = await db
     .select({ id: menuItems.id, name: menuItems.name })
     .from(menuItems)
-    .where(eq(menuItems.isAvailable, 1));
+    .where(and(eq(menuItems.isAvailable, 1), eq(menuItems.fulfillmentType, "brew")));
 
   return { eventId: getBusinessDate(), menus };
 }
