@@ -414,7 +414,9 @@ export class OrderDurableObject implements DurableObject {
         id: item.id,
         orderId: item.orderId,
         menuItemId: item.menuItemId,
+        unitPriceAtOrder: item.unitPriceAtOrder,
         quantity: item.quantity,
+        fulfillmentTypeAtOrder: item.fulfillmentTypeAtOrder === "direct" ? "direct" : "brew",
         name: menuNames.get(item.menuItemId),
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
@@ -480,10 +482,19 @@ export class OrderDurableObject implements DurableObject {
         const orderId = crypto.randomUUID();
         const orderItemIds = itemRows.results.map(() => crypto.randomUUID());
         const statements: D1PreparedStatement[] = [
+          // direct 商品だけの注文は会計時に受け渡すため、抽出を待たず completed で作成する。
           this.env.DB.prepare(
             `INSERT INTO orders
                (id, business_date, order_number, status, is_free, mobile_request_id, created_at, updated_at)
-             SELECT ?, ?, ?, 'pending', 0, ?, ?, ?
+             SELECT ?, ?, ?,
+                    CASE WHEN EXISTS (
+                      SELECT 1
+                        FROM mobile_order_request_items AS request_item
+                        LEFT JOIN menu_items AS menu ON menu.id = request_item.menu_item_id
+                       WHERE request_item.request_id = ?
+                         AND COALESCE(menu.fulfillment_type, 'brew') <> 'direct'
+                    ) THEN 'pending' ELSE 'completed' END,
+                    0, ?, ?, ?
                FROM mobile_order_requests
               WHERE id = ? AND status = 'awaiting_payment' AND accepted_order_id IS NULL
                 AND business_date = ?
@@ -494,6 +505,7 @@ export class OrderDurableObject implements DurableObject {
             orderId,
             request.businessDate,
             request.orderNumber,
+            requestId,
             requestId,
             now,
             now,
