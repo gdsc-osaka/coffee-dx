@@ -26,6 +26,65 @@ type PendingMobileOrder = {
 
 type MobileOrderRow = Omit<PendingMobileOrder, "items" | "total"> & PendingMobileOrderItem;
 
+type PaidMobileOrder = {
+  id: string;
+  orderNumber: number;
+  paidAt: string | null;
+};
+
+type CheckoutRequest = {
+  businessDate: string;
+  status: "awaiting_payment" | "paid" | "cancelled";
+};
+
+async function getCheckoutRequest(
+  d1: D1Database,
+  storeToken: string,
+  requestId: string,
+): Promise<CheckoutRequest | null> {
+  return d1
+    .prepare(
+      `SELECT business_date AS businessDate, status
+         FROM mobile_order_requests
+        WHERE id = ? AND store_token = ?`,
+    )
+    .bind(requestId, storeToken)
+    .first<CheckoutRequest>();
+}
+
+async function paymentFailure(
+  d1: D1Database,
+  storeToken: string,
+  requestId: string,
+  responseStatus?: number,
+) {
+  try {
+    const current = await getCheckoutRequest(d1, storeToken, requestId);
+    if (current?.status === "paid") {
+      return {
+        ok: false as const,
+        kind: "sync_pending" as const,
+        error: "支払記録は保存済みです。再度お会計せず、下の「注文を再同期」を押してください。",
+      };
+    }
+    if (responseStatus === 409) {
+      return {
+        ok: false as const,
+        error: "この注文は会計できません。注文状態を確認してください。",
+      };
+    }
+    return {
+      ok: false as const,
+      error: "会計を確定できませんでした。注文状態を確認してください。",
+    };
+  } catch {
+    return {
+      ok: false as const,
+      error: "会計結果を確認できません。再度請求せず、通信状態を確認してください。",
+    };
+  }
+}
+
 async function forwardMobileOrderAction(
   stub: DurableObjectStub,
   requestId: string,
@@ -100,7 +159,24 @@ export async function loader({ context }: Route.LoaderArgs) {
     orderMap.set(row.id, order);
   }
 
-  return { storeToken, businessDate, isAccepting, pendingOrders: [...orderMap.values()] };
+  const paidOrders = await context.cloudflare.env.DB.prepare(
+    `SELECT r.id, r.order_number AS orderNumber, r.paid_at AS paidAt
+       FROM mobile_order_requests r
+       LEFT JOIN orders accepted ON accepted.id = r.accepted_order_id
+      WHERE r.store_token = ? AND r.business_date = ? AND r.status = 'paid'
+        AND (accepted.status IN ('pending', 'brewing', 'ready') OR accepted.id IS NULL)
+      ORDER BY r.paid_at DESC, r.order_number DESC`,
+  )
+    .bind(storeToken, businessDate)
+    .all<PaidMobileOrder>();
+
+  return {
+    storeToken,
+    businessDate,
+    isAccepting,
+    pendingOrders: [...orderMap.values()],
+    paidOrders: paidOrders.results,
+  };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -123,40 +199,53 @@ export async function action({ request, context }: Route.ActionArgs) {
     };
   }
 
-  if (intent !== "pay" && intent !== "cancel") {
+  if (intent !== "pay" && intent !== "cancel" && intent !== "sync") {
     return { ok: false as const, error: "操作を指定してください。" };
   }
 
   const requestId = formData.get("requestId");
-  const businessDate = formData.get("businessDate");
-  if (typeof requestId !== "string" || typeof businessDate !== "string") {
+  if (typeof requestId !== "string") {
     return { ok: false as const, error: "注文情報が不正です。画面を再読み込みしてください。" };
   }
 
+  const storeToken = getConfiguredMobileStoreToken(context.cloudflare.env);
+  const d1 = context.cloudflare.env.DB;
   try {
-    const stub = getOrderDOStub(context.cloudflare.env, businessDate);
-    const response = await forwardMobileOrderAction(stub, requestId, businessDate, intent);
+    const current = await getCheckoutRequest(d1, storeToken, requestId);
+    if (!current) return { ok: false as const, error: "注文が見つかりません。" };
+    if (intent === "sync" && current.status !== "paid") {
+      return { ok: false as const, error: "支払済みの注文だけ再同期できます。" };
+    }
+    if (intent !== "cancel" && current.businessDate !== getBusinessDate()) {
+      return {
+        ok: false as const,
+        error: "前営業日の注文は会計できません。注文を取り消してください。",
+      };
+    }
+
+    const stub = getOrderDOStub(context.cloudflare.env, current.businessDate);
+    const response = await forwardMobileOrderAction(
+      stub,
+      requestId,
+      current.businessDate,
+      intent === "sync" ? "pay" : intent,
+    );
     if (!response.ok) {
+      if (intent !== "cancel") return paymentFailure(d1, storeToken, requestId, response.status);
       return {
         ok: false as const,
         error:
-          intent === "pay"
-            ? response.status === 409
-              ? "この注文は会計できません。営業日または注文状態を確認してください。"
-              : "会計に失敗しました。もう一度お試しください。"
-            : response.status === 409
-              ? "この注文は取り消せません。すでに会計済みの可能性があります。"
-              : "注文の取り消しに失敗しました。もう一度お試しください。",
+          response.status === 409
+            ? "この注文は取り消せません。すでに会計済みの可能性があります。"
+            : "注文の取り消しに失敗しました。もう一度お試しください。",
       };
     }
     return { ok: true as const, kind: "order" as const, intent };
   } catch {
+    if (intent !== "cancel") return paymentFailure(d1, storeToken, requestId);
     return {
       ok: false as const,
-      error:
-        intent === "pay"
-          ? "会計に失敗しました。もう一度お試しください。"
-          : "注文の取り消しに失敗しました。もう一度お試しください。",
+      error: "注文の取り消しに失敗しました。もう一度お試しください。",
     };
   }
 }
@@ -219,10 +308,16 @@ export default function MobileOrderCheckout({ loaderData }: Route.ComponentProps
             </Form>
           </div>
           {actionData && !actionData.ok && (
-            <p className="mt-3 text-sm text-red-600">{actionData.error}</p>
+            <p
+              className={`mt-3 text-sm ${"kind" in actionData && actionData.kind === "sync_pending" ? "font-bold text-amber-800" : "text-red-600"}`}
+            >
+              {actionData.error}
+            </p>
           )}
           {actionData?.ok && actionData.kind === "order" && (
-            <p className="mt-3 text-sm text-emerald-700">注文を更新しました。</p>
+            <p className="mt-3 text-sm text-emerald-700">
+              {actionData.intent === "sync" ? "注文を再同期しました。" : "注文を更新しました。"}
+            </p>
           )}
           <p className="mt-3 text-xs text-stone-400">
             受付状態は新規注文にのみ適用されます。受付停止中でも、すでに受け付けた注文は会計できます。
@@ -262,20 +357,25 @@ export default function MobileOrderCheckout({ loaderData }: Route.ComponentProps
                       <div className="flex shrink-0 flex-col gap-2">
                         <Form method="post">
                           <input type="hidden" name="requestId" value={order.id} />
-                          <input type="hidden" name="businessDate" value={order.businessDate} />
                           <button
                             type="submit"
                             name="intent"
                             value="pay"
-                            disabled={isSubmitting}
+                            disabled={
+                              isSubmitting || order.businessDate !== loaderData.businessDate
+                            }
                             className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:bg-stone-300"
                           >
                             会計完了
                           </button>
                         </Form>
+                        {order.businessDate !== loaderData.businessDate && (
+                          <p className="max-w-32 text-xs text-amber-700">
+                            前営業日の注文は会計できません。
+                          </p>
+                        )}
                         <Form method="post">
                           <input type="hidden" name="requestId" value={order.id} />
-                          <input type="hidden" name="businessDate" value={order.businessDate} />
                           <button
                             type="submit"
                             name="intent"
@@ -295,6 +395,39 @@ export default function MobileOrderCheckout({ loaderData }: Route.ComponentProps
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </section>
+
+        <section className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-stone-800">本日の支払済み注文</h2>
+          <p className="mt-2 text-xs text-stone-500">
+            会計後に注文がスタッフ画面へ反映されなかった場合は、再請求せず再同期してください。
+          </p>
+          {loaderData.paidOrders.length === 0 ? (
+            <p className="mt-4 text-sm text-stone-400">支払済みのモバイル注文はありません。</p>
+          ) : (
+            <ul className="mt-4 divide-y divide-stone-100">
+              {loaderData.paidOrders.map((order) => (
+                <li key={order.id} className="flex items-center justify-between gap-4 py-3">
+                  <div>
+                    <p className="font-bold text-stone-800">#{order.orderNumber}</p>
+                    <p className="text-xs text-stone-500">会計時刻：{order.paidAt ?? "確認中"}</p>
+                  </div>
+                  <Form method="post">
+                    <input type="hidden" name="requestId" value={order.id} />
+                    <button
+                      type="submit"
+                      name="intent"
+                      value="sync"
+                      disabled={isSubmitting}
+                      className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-bold text-stone-700 disabled:opacity-50"
+                    >
+                      注文を再同期
+                    </button>
+                  </Form>
+                </li>
+              ))}
             </ul>
           )}
         </section>

@@ -405,11 +405,13 @@ export class OrderDurableObject implements DurableObject {
     const existing = this.orders.get(order.id);
     if (existing) {
       await this.autoAssignReadyUnits(existing);
+      await this.refillBrewQueue();
       return;
     }
     this.orders.set(order.id, order);
     this.broadcast({ type: "ORDER_CREATED", order });
     await this.autoAssignReadyUnits(order);
+    await this.refillBrewQueue();
   }
 
   private async handleMobileOrderPayment(requestId: string): Promise<Response> {

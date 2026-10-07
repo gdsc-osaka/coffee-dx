@@ -136,7 +136,7 @@ describe("OrderDO mobile order payment", () => {
     return { ws, next };
   };
 
-  it("前営業日の注文も手動で会計でき、再送を冪等に処理する", async () => {
+  it("会計済み注文の状態を公開トークンで取得でき、再送を冪等に処理する", async () => {
     const requestId = await createRequest();
 
     const first = await post(requestId, "pay");
@@ -212,9 +212,40 @@ describe("OrderDO mobile order payment", () => {
       expect(retry.status).toBe(200);
       expect(await retry.json()).toMatchObject({ status: "already_paid", orderId });
       expect(await next()).toMatchObject({ type: "ORDER_CREATED", order: { id: orderId } });
+      expect(await next()).toMatchObject({
+        type: "QUEUE_UPDATED",
+        queue: [{ menuItemId: "m1", count: 2 }],
+      });
 
       expect(await db.select().from(orders)).toHaveLength(1);
       expect(await db.select().from(orderItems)).toHaveLength(1);
+    } finally {
+      ws.close();
+    }
+  });
+
+  it("会計確定後に注文杯数を抽出提案キューへ追加する", async () => {
+    const requestId = await createRequest();
+    const { ws, next } = await connect();
+    try {
+      expect(await next()).toMatchObject({ type: "SNAPSHOT", orders: [], queue: [] });
+      const paid = await post(requestId, "pay");
+      expect(paid.status).toBe(200);
+      expect(await next()).toMatchObject({ type: "ORDER_CREATED" });
+      expect(await next()).toMatchObject({
+        type: "QUEUE_UPDATED",
+        queue: [{ menuItemId: "m1", count: 2 }],
+      });
+
+      const retry = await post(requestId, "pay");
+      expect(retry.status).toBe(200);
+      await runInDurableObject(getStub(), (instance) => {
+        const queue = (
+          instance as unknown as { queue: Array<{ menuItemId: string; count: number }> }
+        ).queue;
+        expect(queue).toHaveLength(1);
+        expect(queue[0]).toMatchObject({ menuItemId: "m1", count: 2 });
+      });
     } finally {
       ws.close();
     }
