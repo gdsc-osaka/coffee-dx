@@ -84,7 +84,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     );
     // Date は JSON シリアライズで ISO 文字列に変換されるので、クライアントで new Date() で復元する
     return { orderNumber, createdAt: createdAt.toISOString(), items, isFree, requiresBrewing };
-  } catch(e) {
+  } catch (e) {
     console.error("🔥 注文確定エラーの詳細:", e);
     return { error: "注文の確定に失敗しました。時間をおいて再度お試しください。" };
   }
