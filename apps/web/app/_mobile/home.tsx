@@ -109,6 +109,8 @@ type CartItem = MobileOrderItemInput & { name: string; price: number };
 type PendingOrder = PendingMobileOrder;
 type ConfirmedOrder = ConfirmedMobileOrder;
 
+const STATUS_CHECK_TIMEOUT_MS = 3_000;
+
 function parseStorageValue(raw: string): unknown | null {
   try {
     return JSON.parse(raw);
@@ -156,8 +158,10 @@ export default function MobileOrderHome({ loaderData }: Route.ComponentProps) {
 
     const restoreSavedOrder = async (publicToken: string, savedValue: string) => {
       try {
+        // 応答が返らないとメニュー上で注文できないまま待たされるため、打ち切って控えへ戻す。
         const response = await fetch(`/mobile/orders/${publicToken}/status`, {
           headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(STATUS_CHECK_TIMEOUT_MS),
         });
         if (cancelled) return;
 

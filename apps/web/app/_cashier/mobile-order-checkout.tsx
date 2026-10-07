@@ -216,6 +216,7 @@ export async function action({ request, context }: Route.ActionArgs) {
     if (intent === "sync" && current.status !== "paid") {
       return { ok: false as const, error: "支払済みの注文だけ再同期できます。" };
     }
+    // 0時直前の会計は DO 到達時に日付をまたぎ得るが、営業は18:00までのため許容する。
     if (intent !== "cancel" && current.businessDate !== getBusinessDate()) {
       return {
         ok: false as const,

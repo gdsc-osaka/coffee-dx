@@ -418,6 +418,7 @@ export class OrderDurableObject implements DurableObject {
     return this.state.blockConcurrencyWhile(async () => {
       const request = await this.getMobileOrderRequest(requestId);
       if (!request) return new Response("Mobile order request not found", { status: 404 });
+      // 現状 eventId は呼び出し側が request.businessDate から渡すため常に一致する（下の D1 条件も同様）。マルチテナント化を見越して残す。
       if (request.businessDate !== this.eventId) {
         return new Response("Payment is only available for the current business date", {
           status: 409,
@@ -534,6 +535,7 @@ export class OrderDurableObject implements DurableObject {
     return this.state.blockConcurrencyWhile(async () => {
       const request = await this.getMobileOrderRequest(requestId);
       if (!request) return new Response("Mobile order request not found", { status: 404 });
+      // 現状 eventId は呼び出し側が request.businessDate から渡すため常に一致する。マルチテナント化を見越して残す。
       if (request.businessDate !== this.eventId) {
         return new Response("Order belongs to another business date", { status: 409 });
       }
