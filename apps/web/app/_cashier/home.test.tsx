@@ -15,6 +15,12 @@ vi.mock("react-router", () => ({
   useNavigation: useNavigationMock,
 }));
 
+// このテストの関心は home の注文表示ロジックなので、LeftoverOrdersBanner は
+// 副作用 (fetch / useFetcher) をすべて持たないスタブに差し替える。
+vi.mock("./components/LeftoverOrdersBanner", () => ({
+  LeftoverOrdersBanner: () => null,
+}));
+
 import CashierHome from "./home";
 
 type ServerMessage =
