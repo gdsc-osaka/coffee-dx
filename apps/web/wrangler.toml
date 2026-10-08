@@ -1,5 +1,6 @@
 name = "coffee-dx"
 compatibility_date = "2026-04-04"
+compatibility_flags = ["nodejs_compat"]
 main = "./worker.ts"
 assets = { directory = "./build/client" }
 
