@@ -2,20 +2,54 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { drizzle } from "drizzle-orm/d1";
+import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { betterAuth } from "better-auth";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { mobileOrderRequests, orderItems, orders } from "../../db/schema";
+import * as authSchema from "../../db/auth-schema";
+import { createAuthOptions } from "../lib/auth-options";
+import { createAuth } from "../lib/auth.server";
 import { getConfiguredMobileStoreToken } from "../features/mobile-order/actions";
 import { getBusinessDate } from "../lib/order-do";
 import { action, loader } from "./mobile-order-checkout";
 
 type TestEnv = Env & { TEST_MIGRATIONS: D1Migration[] };
-const testEnv = env as unknown as TestEnv;
+const testEnv = {
+  ...env,
+  BETTER_AUTH_SECRET: "checkout-test-secret-with-at-least-32-characters",
+  BETTER_AUTH_URL: "https://example.com",
+} as TestEnv;
 const db = drizzle(testEnv.DB);
 let storeToken: string;
+let cookie: string;
 
 beforeAll(async () => {
   await applyD1Migrations(testEnv.DB, testEnv.TEST_MIGRATIONS);
   storeToken = getConfiguredMobileStoreToken(testEnv);
+  const options = createAuthOptions();
+  const provisioner = betterAuth({
+    ...options,
+    emailAndPassword: { ...options.emailAndPassword, disableSignUp: false, autoSignIn: false },
+    database: drizzleAdapter(drizzle(testEnv.DB, { schema: authSchema }), {
+      provider: "sqlite",
+      schema: authSchema,
+    }),
+    secret: testEnv.BETTER_AUTH_SECRET,
+    baseURL: testEnv.BETTER_AUTH_URL,
+  });
+  await provisioner.api.signUpEmail({
+    body: {
+      email: `staff-${crypto.randomUUID()}@auth.invalid`,
+      name: "Checkout Staff",
+      username: "checkoutstaff",
+      password: "test-password-1234",
+    },
+  });
+  const response = await createAuth(testEnv).api.signInUsername({
+    body: { username: "checkoutstaff", password: "test-password-1234" },
+    asResponse: true,
+  });
+  cookie = response.headers.get("Set-Cookie")!.split(";")[0];
 });
 
 beforeEach(async () => {
@@ -44,6 +78,7 @@ async function createRequest(businessDate: string, status: "awaiting_payment" | 
 function submit(intent: "pay" | "cancel" | "sync", requestId: string) {
   const request = new Request("https://example.com/order/mobile-checkout", {
     method: "POST",
+    headers: { Cookie: cookie },
     body: new URLSearchParams({ intent, requestId }),
   });
   return action({ request, context: { cloudflare: { env: testEnv } } } as unknown as Parameters<
@@ -75,6 +110,7 @@ describe("mobile order checkout action", () => {
     if (!result.ok) expect(result.error).toContain("再度お会計せず");
 
     const loaded = await loader({
+      request: new Request("https://example.com/order/mobile-checkout", { headers: { Cookie: cookie } }),
       context: { cloudflare: { env: testEnv } },
     } as unknown as Parameters<typeof loader>[0]);
     expect(loaded.paidOrders).toEqual([expect.objectContaining({ id: requestId })]);

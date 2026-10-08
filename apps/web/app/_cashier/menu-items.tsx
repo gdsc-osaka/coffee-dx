@@ -8,8 +8,10 @@ import {
 } from "~/features/menu/actions";
 import { getAllMenuItems } from "~/features/menu/queries";
 import { createDb } from "~/lib/db";
+import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
 
-export async function loader({ context }: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requirePageStaff(request, context.cloudflare.env);
   const db = createDb(context.cloudflare.env.DB);
   const rows = await getAllMenuItems(db);
   // fulfillmentType は schema.ts 上は text 列（plain string）としてしか型付けされていないため、
@@ -28,6 +30,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
+  await requireApiStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
 

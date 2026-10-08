@@ -3,6 +3,8 @@ import { Link, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
+import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
+import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { LeftoverOrdersBanner } from "./components/LeftoverOrdersBanner";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
@@ -69,11 +71,13 @@ type VirtualOrder = Omit<CashierOrder, "items"> & {
   serverStatus: OrderStatus;
 };
 
-export async function loader(_args: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requirePageStaff(request, context.cloudflare.env);
   return { eventId: getBusinessDate() };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
+  await requireApiStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const orderId = formData.get("orderId");
@@ -166,9 +170,11 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       const currentSocket = new WebSocket(
         `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
       );
+      const authDeadline = createWebSocketAuthDeadline(currentSocket);
       socket = currentSocket;
 
       teardownConnection = () => {
+        authDeadline.dispose();
         clearHeartbeatTimers();
         currentSocket.onclose = null;
         currentSocket.onerror = null;
@@ -203,6 +209,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
       currentSocket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as ServerMessage;
+          if (!authDeadline.accept(message)) return;
 
           if (message.type === "pong") {
             if (pongTimeoutId !== null) {
@@ -277,10 +284,12 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
           }
         } catch {
           setConnectionError("メッセージ受信時にエラーが発生しました");
+          currentSocket.close();
         }
       };
 
       currentSocket.onclose = () => {
+        authDeadline.dispose();
         clearHeartbeatTimers();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);

@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 import type { Route } from "./+types/_drip2";
+import { requirePageStaff } from "~/lib/auth.server";
 
 export const links: Route.LinksFunction = () => [
   { rel: "manifest", href: "/manifest-drip.webmanifest" },
@@ -12,8 +13,8 @@ export const meta: Route.MetaFunction = () => [
   { name: "theme-color", content: "#ffffff" },
 ];
 
-export async function loader({ request: _request }: Route.LoaderArgs) {
-  // TODO: スタッフ認証を実装する（_drip.tsx と同じ）
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requirePageStaff(request, context.cloudflare.env);
   return null;
 }
 

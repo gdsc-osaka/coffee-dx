@@ -7,6 +7,7 @@ import {
 } from "~/features/mobile-order/actions";
 import { mobileOrderAcceptanceIntentSchema } from "~/features/mobile-order/schemas";
 import { getBusinessDate, getOrderDOStub } from "~/lib/order-do";
+import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
 
 type PendingMobileOrderItem = {
   menuItemId: string;
@@ -118,7 +119,8 @@ async function forwardMobileOrderAction(
   throw new Error("OrderDO request failed");
 }
 
-export async function loader({ context }: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requirePageStaff(request, context.cloudflare.env);
   const storeToken = getConfiguredMobileStoreToken(context.cloudflare.env);
   const businessDate = getBusinessDate();
   const isAccepting = await getMobileOrderAcceptance(
@@ -180,6 +182,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
+  await requireApiStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const acceptanceIntent = mobileOrderAcceptanceIntentSchema.safeParse(intent);

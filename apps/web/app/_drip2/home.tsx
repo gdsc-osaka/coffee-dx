@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
+import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
+import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { ProductionDashboard } from "./components/ProductionDashboard";
 import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState } from "./components/LaneIdle";
@@ -113,7 +115,8 @@ import { createDb } from "~/lib/db";
 import { menuItems } from "~/../db/schema";
 import { and, eq } from "drizzle-orm";
 
-export async function loader({ context }: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
+  await requirePageStaff(request, context.cloudflare.env);
   const db = createDb(context.cloudflare.env.DB);
   const menus = await db
     .select({ id: menuItems.id, name: menuItems.name })
@@ -124,6 +127,7 @@ export async function loader({ context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
+  await requireApiStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const eventId = formData.get("eventId");
@@ -316,7 +320,9 @@ export default function DripHome({
     const connect = () => {
       if (unmounted) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
+      const currentSocket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
+      const authDeadline = createWebSocketAuthDeadline(currentSocket);
+      socket = currentSocket;
 
       socket.onopen = () => {
         retryCountRef.current = 0;
@@ -327,6 +333,7 @@ export default function DripHome({
       socket.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
+          if (!authDeadline.accept(msg)) return;
 
           if (msg.type === "SNAPSHOT") {
             const nextOrders: Record<string, OrderData> = {};
@@ -395,10 +402,12 @@ export default function DripHome({
           }
         } catch {
           setConnectionError("メッセージ受信時にエラーが発生しました");
+          currentSocket.close();
         }
       };
 
       socket.onclose = () => {
+        authDeadline.dispose();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
         retryCountRef.current += 1;
@@ -407,6 +416,7 @@ export default function DripHome({
 
       socket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
+        currentSocket.close();
       };
     };
 
