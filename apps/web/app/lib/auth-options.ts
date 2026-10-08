@@ -9,7 +9,7 @@ export function createAuthOptions() {
       requireEmailVerification: false,
     },
     disabledPaths: ["/is-username-available"],
-    plugins: [username()],
+    plugins: [username()] as [ReturnType<typeof username>],
     user: {
       additionalFields: {
         role: {

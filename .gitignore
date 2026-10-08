@@ -11,3 +11,4 @@ backend.hcl
 .claude/settings.local.json
 *.wrangler/
 .pnpm-store/
+apps/web/.dev.vars

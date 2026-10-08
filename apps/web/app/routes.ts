@@ -6,6 +6,10 @@ export default [
   // （Chrome は scope 重複した PWA の同時インストールを抑制するため）
   index("_root-redirect.tsx"),
 
+  route("staff/login", "_staff/login.tsx"),
+  route("staff/logout", "_staff/logout.ts"),
+  route("api/auth/*", "_staff/auth-api.ts"),
+
   // 店頭注文とモバイル注文の会計・商品管理画面（スタッフ向け）。
   layout("_order.tsx", [
     route("order", "_order/home.tsx"),
