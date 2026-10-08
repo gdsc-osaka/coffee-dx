@@ -315,13 +315,17 @@ export default function DripHome({
   // WebSocket 接続
   useEffect(() => {
     let socket: WebSocket | null = null;
+    let disposeAuthDeadline = () => {};
     let unmounted = false;
 
     const connect = () => {
       if (unmounted) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const currentSocket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
+      const currentSocket = new WebSocket(
+        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
+      );
       const authDeadline = createWebSocketAuthDeadline(currentSocket);
+      disposeAuthDeadline = () => authDeadline.dispose();
       socket = currentSocket;
 
       socket.onopen = () => {
@@ -425,6 +429,7 @@ export default function DripHome({
     return () => {
       unmounted = true;
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
+      disposeAuthDeadline();
       if (socket) socket.close();
     };
   }, [eventId]);

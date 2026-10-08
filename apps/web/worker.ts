@@ -1,7 +1,7 @@
 import { createRequestHandler } from "react-router";
 export { OrderDurableObject } from "./app/durable-objects/OrderDO";
 
-import { isValidEventId } from "./app/lib/order-do";
+import { handleStaffWebSocketUpgrade } from "./app/lib/ws-upgrade.server";
 
 // Wrangler の本番バンドル（esbuild）では Vite が import.meta.env を注入しない
 const mode = (import.meta as { env?: { MODE?: string } }).env?.MODE ?? "production";
@@ -16,22 +16,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname === "/ws") {
-      if (request.headers.get("Upgrade") !== "websocket") {
-        return new Response("Expected Upgrade: websocket", { status: 426 });
-      }
-
-      const eventId = url.searchParams.get("eventId");
-      if (!eventId || !isValidEventId(eventId)) {
-        return new Response("Invalid or missing eventId. Expected format: YYYY-MM-DD", {
-          status: 400,
-        });
-      }
-      const id = env.ORDER_DO.idFromName(`event-${eventId}`);
-      const stub = env.ORDER_DO.get(id);
-      // DO 側で business_date の真実源として使うため、検証済み eventId をヘッダに載せる
-      const forwarded = new Request(request);
-      forwarded.headers.set("x-event-id", eventId);
-      return stub.fetch(forwarded);
+      return handleStaffWebSocketUpgrade(request, env);
     }
 
     return requestHandler(request, {

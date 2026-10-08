@@ -56,9 +56,15 @@ describe("OrderDO", () => {
       else buffer.push(msg);
     });
 
-    const next = (): Promise<any> => {
+    const nextRaw = (): Promise<any> => {
       if (buffer.length > 0) return Promise.resolve(buffer.shift()!);
       return new Promise((resolve) => waiters.push(resolve));
+    };
+
+    const next = async (): Promise<any> => {
+      let message = await nextRaw();
+      while (message.type === "auth-deadline") message = await nextRaw();
+      return message;
     };
 
     const take = async (n: number): Promise<any[]> => {
@@ -73,7 +79,13 @@ describe("OrderDO", () => {
   const connectWebSocket = async () => {
     const response = await stub.fetch(
       new Request(`http://localhost/ws?eventId=${eventId}`, {
-        headers: { Upgrade: "websocket", "x-event-id": eventId },
+        headers: {
+          Upgrade: "websocket",
+          "x-event-id": eventId,
+          "x-auth-user-id": "test-staff",
+          "x-auth-session-id": "test-session",
+          "x-auth-deadline": String(Date.now() + 300_000),
+        },
       }),
     );
     expect(response.status).toBe(101);

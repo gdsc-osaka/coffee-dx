@@ -82,7 +82,10 @@ function normalizeTargetDurationSec(value: unknown): number | null {
 export class OrderDurableObject implements DurableObject {
   private readonly orders = new Map<string, OrderData>();
   private readonly brewUnits = new Map<string, BrewUnitData>();
-  private readonly sessions = new Set<WebSocket>();
+  private readonly sessions = new Map<
+    WebSocket,
+    { deadline: number; timer: ReturnType<typeof setTimeout> }
+  >();
   /** 次枠キュー（docs/design/drip-suggestion.md）。全端末で同じ内容を表示する */
   private queue: QueueEntry[] = [];
   /** 対象メニュー ID。一度決めたら営業中は変えない。メニュー未登録の間は null */
@@ -107,7 +110,17 @@ export class OrderDurableObject implements DurableObject {
     this.eventId = headerEventId;
 
     if (request.headers.get("Upgrade") === "websocket") {
-      return this.handleWebSocket();
+      const deadline = Number(request.headers.get("x-auth-deadline"));
+      if (
+        !request.headers.get("x-auth-user-id") ||
+        !request.headers.get("x-auth-session-id") ||
+        !Number.isSafeInteger(deadline) ||
+        deadline <= Date.now() ||
+        deadline > Date.now() + 300_000
+      ) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return this.handleWebSocket(deadline);
     }
 
     await this.initialize();
@@ -319,12 +332,25 @@ export class OrderDurableObject implements DurableObject {
   // WebSocket
   // ---------------------------------------------------------------------------
 
-  private async handleWebSocket(): Promise<Response> {
+  private async handleWebSocket(deadline: number): Promise<Response> {
     await this.initialize();
+    if (deadline <= Date.now()) return new Response("Unauthorized", { status: 401 });
 
     const { 0: client, 1: server } = new WebSocketPair();
     server.accept();
-    this.sessions.add(server);
+    const closeExpired = () => {
+      this.removeSession(server);
+      try {
+        server.close(4001, "Authentication expired");
+      } catch {
+        // Already closed.
+      }
+    };
+    const timer = setTimeout(closeExpired, Math.max(0, deadline - Date.now()));
+    this.sessions.set(server, { deadline, timer });
+    server.send(
+      JSON.stringify({ type: "auth-deadline", authDeadline: deadline, serverTime: Date.now() }),
+    );
 
     const snapshotOrders = Array.from(this.orders.values()).filter(
       (o) => o.status !== "completed" && o.status !== "cancelled",
@@ -339,14 +365,18 @@ export class OrderDurableObject implements DurableObject {
       } satisfies ServerMessage),
     );
 
-    server.addEventListener("close", () => this.sessions.delete(server));
-    server.addEventListener("error", () => this.sessions.delete(server));
+    server.addEventListener("close", () => this.removeSession(server));
+    server.addEventListener("error", () => this.removeSession(server));
 
     // クライアントからのアプリケーション層 ping に pong で応答する。
     // Cloudflare の WebSocket アイドルタイムアウト（約 100 秒）や NAT 再起動などで
     // TCP が「半開き」になった際、クライアント側が onclose を受け取れないままに
     // なる現象を防ぐため、フレーム往復をクライアント主導で確認させる。
     server.addEventListener("message", (event: MessageEvent) => {
+      if (Date.now() >= deadline) {
+        closeExpired();
+        return;
+      }
       if (typeof event.data !== "string") return;
       try {
         const msg = JSON.parse(event.data) as { type?: unknown };
@@ -1193,12 +1223,24 @@ export class OrderDurableObject implements DurableObject {
 
   private broadcast(message: ServerMessage): void {
     const payload = JSON.stringify(message);
-    for (const session of this.sessions) {
+    for (const [session, metadata] of this.sessions) {
+      if (Date.now() >= metadata.deadline) {
+        this.removeSession(session);
+        session.close(4001, "Authentication expired");
+        continue;
+      }
       try {
         session.send(payload);
       } catch {
-        this.sessions.delete(session);
+        this.removeSession(session);
       }
     }
+  }
+
+  private removeSession(session: WebSocket): void {
+    const metadata = this.sessions.get(session);
+    if (!metadata) return;
+    clearTimeout(metadata.timer);
+    this.sessions.delete(session);
   }
 }
