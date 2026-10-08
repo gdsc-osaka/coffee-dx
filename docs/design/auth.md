@@ -88,10 +88,12 @@ compatibility_flags = ["nodejs_compat"]
 
 1. Worker は Upgrade 前にセッション、ロール、`isActive` を検証する。
 2. Worker は外部リクエストに含まれる認証用内部ヘッダーを削除し、検証済みのユーザー ID・セッション ID・再認証期限を内部ヘッダーとして設定して DO へ転送する。再認証期限は「セッションの `expiresAt`」と「接続から5分後」の早い方とする。
-3. DO は接続ごとに再認証期限を保持し、期限に達したソケットをアプリケーション用 close code `4001` で閉じる。
-4. クライアントは `4001` を受けたら再接続する。再接続は必ず Worker を経由するため、その時点の D1 セッションと `isActive` が再検証される。
+3. DO は接続ごとに再認証期限を保持し、接続直後の最初のメッセージとして `{ type: "auth-deadline", authDeadline, serverTime }` をそのソケットだけに送る。`authDeadline` と `serverTime` は Unix 時刻のミリ秒値とする。認証期限メッセージを送った後に通常の注文スナップショットを送る。
+4. DO は再認証期限に達したソケットをアプリケーション用 close code `4001` で閉じる。これをセキュリティ上の期限強制とし、クライアントの動作には依存しない。
+5. クライアントも `authDeadline - serverTime` から残り時間を計算し、単調時計を使ったタイマーで同じ期限に接続を閉じて再接続する。最初のメッセージが認証期限でない場合、または値が不正な場合は fail closed として接続を閉じる。端末時計のずれを避けるため、端末の絶対時刻との差分では判定しない。
+6. `4001` またはクライアント側タイマーで切断した後の再接続は必ず Worker を経由するため、その時点の D1 セッションと `isActive` が再検証される。
 
-これにより、通常の HTTP リクエストと新規 WebSocket 接続はセッション削除後すぐに拒否され、接続済み WebSocket も最長5分で拒否される。5分間隔は少人数・短期間の運用で D1 負荷を抑えながら失効を反映するための上限であり、実装時の負荷試験で短縮はできるが延長はしない。DO がタイマーを失った場合もクライアント側から5分以内に接続を閉じて再接続し、双方で期限を強制する。
+これにより、通常の HTTP リクエストと新規 WebSocket 接続はセッション削除後すぐに拒否され、接続済み WebSocket も最長5分で拒否される。セッションの残り時間が5分未満なら、DO とクライアントの双方がその早い期限を使用する。5分間隔は少人数・短期間の運用で D1 負荷を抑えながら失効を反映するための上限であり、実装時の負荷試験で短縮はできるが延長はしない。
 
 ## セッション管理
 
@@ -197,6 +199,7 @@ export function createAuth(env: Env) {
       disableSignUp: true,
       requireEmailVerification: false,
     },
+    disabledPaths: ["/is-username-available"],
     plugins: [username()],
     user: {
       additionalFields: {
@@ -227,7 +230,7 @@ export type Auth = ReturnType<typeof createAuth>;
 
 ### betterAuth API ルート
 
-Better Auth の認証エンドポイントを単一のキャッチオールルートで受け付ける。ただしキャッチオールを公開しただけで全操作を許可する設計にはしない。セルフサインアップを無効化し、今回不要なメール再設定・メール変更などの公開範囲を実装時に確認する。
+Better Auth の認証エンドポイントを単一のキャッチオールルートで受け付ける。ただしキャッチオールを公開しただけで全操作を許可する設計にはしない。セルフサインアップを無効化し、ユーザー名列挙に使われる `/is-username-available` は `disabledPaths` で無効化する。採用する Better Auth バージョンでこの設定と拒否応答を確認し、今回不要なメール再設定・メール変更などの公開範囲も実装時に確認する。
 
 ```ts
 // app/routes/api.auth.$.ts
@@ -247,7 +250,7 @@ export async function action({ request, context }: Route.ActionFunctionArgs) {
 
 ### サーバー側の認証・認可ガード
 
-数値レベルではなく、**許可ロールの明示的な列挙**でガードする。`manager` は将来の拡張余地として型に残すが、今回発行するアカウントは `staff` のみ。以下は概念例であり、実装では画面向け（リダイレクト）と API 向け（`401` / `403`）の応答を分ける。
+数値レベルではなく、**許可ロールの明示的な列挙**でガードする。`manager` は将来の拡張余地として型に残すが、今回発行するアカウントは `staff` のみ。認証・認可の判定は共通化し、画面向けと API 向けの応答だけを分ける。
 
 ```ts
 // app/lib/auth.server.ts（上記ファイルに追記）
@@ -255,30 +258,74 @@ import { redirect } from "react-router";
 
 export type Role = "staff" | "manager";
 
-export async function requireRole(
+type AuthorizedUser = { userId: string; role: Role };
+type AuthorizationResult =
+  | { ok: true; user: AuthorizedUser }
+  | { ok: false; status: 401 | 403 };
+
+const STAFF_PATH_PREFIXES = ["/order", "/drip", "/drip2", "/cashier"];
+
+function getSafeStaffReturnTo(request: Request): string {
+  const url = new URL(request.url);
+  const isStaffPath = STAFF_PATH_PREFIXES.some(
+    (prefix) => url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)
+  );
+  return isStaffPath ? `${url.pathname}${url.search}` : "/order";
+}
+
+async function authorizeRole(
   request: Request,
   env: Env,
   allowedRoles: Role[]
-): Promise<{ userId: string; role: Role }> {
+): Promise<AuthorizationResult> {
   const session = await createAuth(env).api.getSession({
     headers: request.headers,
   });
 
   if (!session) {
-    throw redirect("/staff/login");
+    return { ok: false, status: 401 };
   }
 
   if (!session.user.isActive || !allowedRoles.includes(session.user.role as Role)) {
-    throw new Response("Forbidden", { status: 403 });
+    return { ok: false, status: 403 };
   }
 
-  return { userId: session.user.id, role: session.user.role as Role };
+  return {
+    ok: true,
+    user: { userId: session.user.id, role: session.user.role as Role },
+  };
+}
+
+export async function requirePageRole(
+  request: Request,
+  env: Env,
+  allowedRoles: Role[]
+): Promise<AuthorizedUser> {
+  const result = await authorizeRole(request, env, allowedRoles);
+  if (result.ok) return result.user;
+  if (result.status === 401) {
+    const returnTo = getSafeStaffReturnTo(request);
+    throw redirect(`/staff/login?returnTo=${encodeURIComponent(returnTo)}`);
+  }
+  throw new Response("Forbidden", { status: 403 });
+}
+
+export async function requireApiRole(
+  request: Request,
+  env: Env,
+  allowedRoles: Role[]
+): Promise<AuthorizedUser> {
+  const result = await authorizeRole(request, env, allowedRoles);
+  if (result.ok) return result.user;
+  throw new Response(result.status === 401 ? "Unauthorized" : "Forbidden", {
+    status: result.status,
+  });
 }
 ```
 
 ### レイアウトと各ハンドラのガード
 
-`_order.tsx`、`_drip.tsx`、`_drip2.tsx`、`_cashier.tsx` のレイアウト `loader` で、スタッフ画面の表示を保護する。ただし親の `loader` だけでは子ルートの `action` やリソースルートへの直接リクエストを守れないため、**各スタッフ用 `loader` / `action` から共通ガードを明示的に呼ぶ方式**を採用する。新規ルートで呼び忘れないよう、スタッフ用ルート一覧を基に未認証 GET・POST の回帰テストを設ける。React Router の認証ミドルウェアは今回は導入しない。
+`_order.tsx`、`_drip.tsx`、`_drip2.tsx`、`_cashier.tsx` のレイアウト `loader` で、スタッフ画面の表示を保護する。ただし親の `loader` だけでは子ルートの `action` やリソースルートへの直接リクエストを守れないため、**各スタッフ用 `loader` / `action` からガードを明示的に呼ぶ方式**を採用する。画面を構成する `loader` とフォーム `action` は `requirePageRole` を使い、未認証時に元のパスとクエリを保持してログイン画面へリダイレクトする。JSON 等のリソースルートは `requireApiRole` を使い、未認証なら `401`、権限不足なら `403` を返す。新規ルートで呼び忘れないよう、スタッフ用ルート一覧を基に未認証 GET・POST の回帰テストを設ける。React Router の認証ミドルウェアは今回は導入しない。
 
 `/cashier/orders-history` と `/cashier/leftover-orders` はリソースルートなので個別の認証が必須。`/order` 配下の商品管理・注文確定・モバイル注文会計も、更新 `action` に認可をかける。`/ws` は React Router の外側にあるため、ミドルウェアだけでは保護できない。Worker 入口でセッションを検証し、失敗時は DO に転送しない。Worker が設定する認証用内部ヘッダーを外部入力で偽装できないことと、DO・クライアント双方が再認証期限を強制することをテストする。
 
@@ -318,5 +365,7 @@ Google などの外部 IdP を使った OAuth 認証は、文化祭の短期間�
 
 - 一回限りの `scheduled()` プロビジョニング処理を本番 D1 へ接続・実行・撤去する操作と、失敗時の安全な再実行を検証する。
 - 採用する Better Auth バージョンで `staff-<UUID>@auth.invalid` の登録とユーザー名ログインが通ることを確認する。通らない場合は当方管理ドメインの専用サブドメインを決める。
+- `/api/auth/is-username-available` が無効化され、未認証でユーザー名の存在を照会できないことを確認する。
 - 初期パスワードの安全な受け渡しと本人確認の連絡先を決め、パスワード紛失時の代替アカウント発行をステージングで通し、旧 credential・既存セッション・WebSocket が無効になることを確認する。
-- WebSocket がセッション期限または接続から5分後の早い方で閉じ、再接続時に失効済みセッションと無効化済みアカウントを拒否することを確認する。
+- 画面用ガードが安全な `returnTo` 付きリダイレクトを返し、API 用ガードが未認証時に `401`、権限不足時に `403` を返すことを確認する。
+- WebSocket の初期メッセージが `authDeadline` と `serverTime` を通知し、DO とクライアントがセッション期限または接続から5分後の早い方で閉じ、再接続時に失効済みセッションと無効化済みアカウントを拒否することを確認する。
