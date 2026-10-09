@@ -1,0 +1,15 @@
+name = "coffee-dx-provision"
+main = "./provision-worker.ts"
+compatibility_date = "2026-04-04"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "coffee-dx-db"
+database_id = "548f7cf3-07db-4da6-b3a7-8f769d3a685d"
+
+[triggers]
+# 運用時だけ cron を設定し、実行後は [] に戻して Worker を撤去する。
+crons = []
