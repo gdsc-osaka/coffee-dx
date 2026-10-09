@@ -62,4 +62,21 @@ describe("shared login attempt limit", () => {
       else expect(result.status).toBe(429);
     }
   });
+
+  it("deletes expired counters while retaining active windows", async () => {
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        "INSERT INTO auth_login_attempts (key, count, reset_at) VALUES (?, ?, ?)",
+      ).bind("expired", 1, Date.now() - 1),
+      testEnv.DB.prepare(
+        "INSERT INTO auth_login_attempts (key, count, reset_at) VALUES (?, ?, ?)",
+      ).bind("active", 1, Date.now() + 60_000),
+    ]);
+    await checkLoginRateLimit(new Request("https://example.com/staff/login"), testEnv, "alice");
+    const rows = await testEnv.DB.prepare("SELECT key FROM auth_login_attempts").all<{
+      key: string;
+    }>();
+    expect(rows.results.map((row) => row.key)).toContain("active");
+    expect(rows.results.map((row) => row.key)).not.toContain("expired");
+  });
 });

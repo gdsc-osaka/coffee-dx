@@ -21,6 +21,15 @@ export async function checkLoginRateLimit(
   const now = Date.now();
   const resetAt = now + WINDOW_MS;
 
+  // Bound storage growth from one-off usernames without deleting active windows.
+  await env.DB.prepare(
+    `DELETE FROM auth_login_attempts WHERE key IN (
+       SELECT key FROM auth_login_attempts WHERE reset_at <= ? LIMIT 100
+     )`,
+  )
+    .bind(now)
+    .run();
+
   for (const key of keys) {
     const row = await env.DB.prepare(
       `INSERT INTO auth_login_attempts (key, count, reset_at)
