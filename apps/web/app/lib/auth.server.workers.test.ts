@@ -7,6 +7,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as authSchema from "../../db/auth-schema";
 import { createAuthOptions } from "./auth-options";
 import { authorizeStaff, createAuth, requireApiStaff, requirePageStaff } from "./auth.server";
+import { action as loginAction } from "../_staff/login";
+import { action as logoutAction } from "../_staff/logout";
 
 const testEnv = {
   ...env,
@@ -112,5 +114,54 @@ describe("staff authentication", () => {
       );
     }
     await expect(requireApiStaff(request, testEnv)).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("sets a session cookie on form login and revokes it on logout", async () => {
+    await createProvisioningAuth().api.signUpEmail({
+      body: {
+        email: `staff-${crypto.randomUUID()}@auth.invalid`,
+        name: "Test Staff",
+        username: "teststaff",
+        password: "test-password-1234",
+      },
+    });
+    const context = { cloudflare: { env: testEnv } };
+    const loginRequest = new Request("https://example.com/staff/login", {
+      method: "POST",
+      body: new URLSearchParams({
+        username: "teststaff",
+        password: "test-password-1234",
+        returnTo: "/cashier?tab=history",
+      }),
+    });
+    let loginResponse: Response | undefined;
+    try {
+      await loginAction({ request: loginRequest, context } as unknown as Parameters<
+        typeof loginAction
+      >[0]);
+    } catch (error) {
+      loginResponse = error as Response;
+    }
+    expect(loginResponse?.status).toBe(302);
+    expect(loginResponse?.headers.get("Location")).toBe("/cashier?tab=history");
+    const cookie = loginResponse?.headers.get("Set-Cookie")?.split(";")[0];
+    expect(cookie).toContain("better-auth.session_token");
+    const authenticatedRequest = new Request("https://example.com/cashier", {
+      headers: { Cookie: cookie! },
+    });
+    expect((await authorizeStaff(authenticatedRequest, testEnv)).ok).toBe(true);
+
+    let logoutResponse: Response | undefined;
+    try {
+      await logoutAction({ request: authenticatedRequest, context } as unknown as Parameters<
+        typeof logoutAction
+      >[0]);
+    } catch (error) {
+      logoutResponse = error as Response;
+    }
+    expect(logoutResponse?.status).toBe(302);
+    expect(logoutResponse?.headers.get("Location")).toBe("/staff/login");
+    expect(logoutResponse?.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    expect((await authorizeStaff(authenticatedRequest, testEnv)).ok).toBe(false);
   });
 });

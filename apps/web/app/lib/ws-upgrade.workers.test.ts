@@ -88,4 +88,27 @@ describe("WebSocket authorization boundary", () => {
     await testEnv.DB.prepare("UPDATE user SET is_active = 0 WHERE id = ?").bind(userId).run();
     expect((await handleStaffWebSocketUpgrade(request, testEnv)).status).toBe(403);
   });
+
+  it("closes a DO socket with 4001 at the internal deadline", async () => {
+    const stub = testEnv.ORDER_DO.get(testEnv.ORDER_DO.idFromName("event-2026-04-18"));
+    const response = await stub.fetch(
+      new Request("https://example.com/ws", {
+        headers: {
+          Upgrade: "websocket",
+          "x-event-id": "2026-04-18",
+          "x-auth-user-id": "test-staff",
+          "x-auth-session-id": "test-session",
+          "x-auth-deadline": String(Date.now() + 150),
+        },
+      }),
+    );
+    expect(response.status).toBe(101);
+    const socket = response.webSocket!;
+    const closed = new Promise<CloseEvent>((resolve) =>
+      socket.addEventListener("close", (event) => resolve(event as CloseEvent)),
+    );
+    socket.accept();
+    const event = await closed;
+    expect(event.code).toBe(4001);
+  });
 });
