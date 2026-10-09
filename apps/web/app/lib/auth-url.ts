@@ -32,8 +32,3 @@ export function safeStaffReturnTo(value: string | null | undefined): string {
     return "/order";
   }
 }
-
-export function staffReturnToFromRequest(request: Request): string {
-  const url = new URL(request.url);
-  return safeStaffReturnTo(`${url.pathname}${url.search}`);
-}

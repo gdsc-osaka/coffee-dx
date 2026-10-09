@@ -189,7 +189,7 @@ Better Auth CLI（`pnpm -F web auth:generate`）で Drizzle スキーマを生�
 
 `apps/web/app/lib/auth.server.ts` の `authorizeStaff` が D1 セッション、`role === "staff"`、`isActive === true` を検査する。`guardStaffRequest` がスタッフ用パスを判定し、未認証の画面リクエストは安全な `returnTo` 付きで `/staff/login` へリダイレクトする。リソースルートは未認証に `401`、権限不足に `403` を返す。返却先とスタッフ用パスの判定は `apps/web/app/lib/auth-url.ts` に置く。
 
-`worker.ts` が `guardStaffRequest` を React Router の `requestHandler` より前に呼ぶ。`/order`、`/drip`、`/drip2`、`/cashier` 配下は一括して保護し、各 `loader` / `action` にガードを重複して置かない。リソースルートも同じ入口を通る。スタッフ用 URL と公開 `/mobile` の判定は `auth.server.workers.test.ts` で確認する。
+`worker.ts` が `guardStaffRequest` を React Router の `requestHandler` より前に呼ぶ。`/order`、`/drip`、`/drip2`、`/cashier` 配下は一括して保護し、各 `loader` / `action` にガードを重複して置かない。React Router の画面データ用 `.data` URL も元のパスに戻して判定する。リソースルートも同じ入口を通る。スタッフ用 URL と公開 `/mobile` の判定は `auth.server.workers.test.ts` で確認する。
 
 `/ws` は React Router より前の Worker で `authorizeStaff` を呼び、検証した内部ヘッダーだけを DO に渡す。DO はヘッダーの欠落・不正値を拒否し、セッション期限または接続後5分の早い方で接続を閉じる。
 

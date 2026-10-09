@@ -120,6 +120,25 @@ describe("staff authentication", () => {
       (await guardStaffRequest(new Request("https://example.com/ORD%45R"), testEnv))?.status,
     ).toBe(302);
     expect(
+      (await guardStaffRequest(new Request("https://example.com/order.data"), testEnv))?.status,
+    ).toBe(302);
+    expect(
+      (
+        await guardStaffRequest(
+          new Request("https://example.com/order/menu-items.data", { method: "POST" }),
+          testEnv,
+        )
+      )?.status,
+    ).toBe(302);
+    expect(
+      (
+        await guardStaffRequest(
+          new Request("https://example.com/cashier/orders-history.data"),
+          testEnv,
+        )
+      )?.status,
+    ).toBe(401);
+    expect(
       await guardStaffRequest(new Request("https://example.com/mobile/store-token"), testEnv),
     ).toBeNull();
   });
