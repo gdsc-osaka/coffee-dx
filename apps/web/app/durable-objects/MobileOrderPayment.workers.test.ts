@@ -124,7 +124,13 @@ describe("OrderDO mobile order payment", () => {
   const connect = async () => {
     const response = await getStub().fetch(
       new Request("https://do/ws", {
-        headers: { Upgrade: "websocket", "x-event-id": eventId },
+        headers: {
+          Upgrade: "websocket",
+          "x-event-id": eventId,
+          "x-auth-user-id": "test-staff",
+          "x-auth-session-id": "test-session",
+          "x-auth-deadline": String(Date.now() + 300_000),
+        },
       }),
     );
     expect(response.status).toBe(101);
@@ -138,9 +144,21 @@ describe("OrderDO mobile order payment", () => {
       else buffer.push(message);
     });
     ws.accept();
-    const next = () => {
+    const nextRaw = (): Promise<unknown> => {
       if (buffer.length > 0) return Promise.resolve(buffer.shift()!);
       return new Promise<unknown>((resolve) => waiters.push(resolve));
+    };
+    const next = async (): Promise<unknown> => {
+      let message = await nextRaw();
+      while (
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "auth-deadline"
+      ) {
+        message = await nextRaw();
+      }
+      return message;
     };
     return { ws, next };
   };
