@@ -4,6 +4,7 @@ import type { Route } from "./+types/home";
 import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
 import { LeftoverOrdersBanner } from "./components/LeftoverOrdersBanner";
+import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 
 type OrderStatus = "pending" | "brewing" | "ready" | "completed" | "cancelled";
 
@@ -499,6 +500,7 @@ export default function CashierHome({ loaderData }: { loaderData: { eventId: str
               />
               {isConnected ? "接続中" : "再接続中"}
             </span>
+            <StaffLogoutButton />
           </div>
         </div>
       </header>

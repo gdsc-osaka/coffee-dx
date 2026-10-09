@@ -3,6 +3,7 @@ import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 import { ProductionDashboard } from "./components/ProductionDashboard";
+import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
 import type { LaneIdleState } from "./components/LaneIdle";
 import { SoundToggle } from "./components/SoundToggle";
@@ -643,6 +644,7 @@ export default function DripHome({
               />
               {isConnected ? "接続中" : "再接続中"}
             </span>
+            <StaffLogoutButton />
           </div>
         </div>
       </header>

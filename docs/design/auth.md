@@ -5,7 +5,7 @@
 文化祭コーヒー注文管理システムにおける認証（誰であるか）・認可（何ができるか）の設計。
 
 - **認証**: スタッフはユーザー名・パスワードでログインし、betterAuth が管理するサーバーサイドセッションで状態を保持する
-- **認可**: ロールベースのアクセス制御（RBAC）を Remix のレイアウトルートの `loader` で実装する
+- **認可**: スタッフ向けの画面・データ取得・更新・WebSocket 接続をサーバー側で保護する。レイアウトの `loader` だけには依存しない
 - **スコープ**: 単一アプリケーション内完結。OAuth / OIDC などの外部委任認可は対象外
 
 ## 採用ライブラリ
@@ -15,7 +15,8 @@
 | プラグイン | 用途 |
 |-----------|------|
 | `username` | ユーザー名+パスワードによるログイン |
-| `admin` | ロール管理（`role` フィールド付与・ロール変更 API） |
+
+今回 `admin` プラグインは導入しない。スタッフによるアカウント管理機能や `manager` 専用機能を作らないためである。将来必要になった時点で再検討する。
 
 Cloudflare Workers で動作させるため、`wrangler.toml` に `nodejs_compat` フラグを追加する（betterAuth が AsyncLocalStorage を内部使用するため必要）。
 
@@ -33,22 +34,26 @@ compatibility_flags = ["nodejs_compat"]
 |--------|------|---------|
 | `customer` | 一般客 | 不要（パブリック） |
 | `staff` | ドリップ係・会計係 | 必要 |
-| `manager` | 管理者 | 必要 |
+| `manager` | 将来の管理者用に定義のみ残す。今回アカウント・専用機能は作らない | 将来必要 |
 
-ロールは betterAuth の admin plugin が `user` テーブルに追加する `role` フィールドで管理する。現時点では `staff` と `manager` は単純な包含関係（`staff ⊂ manager`）だが、**数値レベルによる比較は行わない**。ルートごとに許可するロールを明示的に列挙する方式を採る（後述）。
+`customer` はログインアカウントのロールではなく、公開画面の利用者を表す。`staff` / `manager` は Better Auth の `user.additionalFields.role` で保持し、クライアントから変更できないサーバー管理項目（`input: false`）とする。初期値は `staff`。同様に、アカウントが利用可能かを示す `isActive` もサーバー管理項目として保持する。今回の運用で発行するのは `staff` アカウントのみ。将来 `manager` を実際に使う際は、付与方法と専用権限を別途設計する。**数値レベルによるロール比較は行わない**。
 
-`staff` ロールは `_drip`（ドリップ係）と `_cashier`（会計係）の両画面にアクセスできる。両画面への同時アクセスを制限する実用的な理由がないため、別ロールには分けない。
+`staff` は `/order`（店頭注文・会計・モバイル注文会計・商品管理）、`/drip`、`/drip2`、`/cashier` にアクセスできる。担当別のロールには分けない。
 
 ## ルートとアクセス権
 
 | ルートグループ | 許可ロール | ガードする場所 |
 |--------------|-----------|--------------|
-| `_customer/*` | なし（パブリック） | — |
-| `_drip/*` | `staff`, `manager` | `_drip.tsx` の `loader` |
-| `_cashier/*` | `staff`, `manager` | `_cashier.tsx` の `loader` |
-| `_admin/*` | `manager` | `_admin.tsx` の `loader` |
+| `/mobile/:storeToken`、`/mobile/orders/:publicToken`、`/mobile/orders/:publicToken/status` | 公開。ただし店舗トークン・注文控えトークンをそれぞれ検証 | 各ルートの `loader` / `action` |
+| `/order`、`/order/mobile-checkout`、`/order/menu-items` | `staff`（将来は `manager` も許可可能） | Worker の HTTP 入口 |
+| `/drip`、`/drip2` | 同上 | Worker の HTTP 入口 |
+| `/cashier`、`/cashier/orders-history`、`/cashier/leftover-orders` | 同上 | Worker の HTTP 入口。リソースルートも含む |
+| `/ws` | `staff`（将来は `manager` も許可可能） | React Router より前の Worker `fetch` で Upgrade 前に認証し、DO で再認証期限を強制 |
 | `/staff/login` | なし（パブリック） | — |
-| `/api/auth/*` | なし（betterAuth ハンドラ） | — |
+| `/staff/logout` | セッションを削除する POST | Better Auth の `signOut` |
+| `/api/auth/*` | 公開しない | Better Auth のサーバー API をスタッフ用 action から直接呼ぶ |
+
+現行 `routes.ts` では `/order/mobile-checkout` と `/order/menu-items` の実装ファイルが `_cashier` ディレクトリにあるが、認可はファイルの置き場所ではなく実際の URL・ルート定義に従う。`_mobile` の画面は公開対象であり、スタッフ用レイアウトの認証を要求しない。ルート `/` のリダイレクト先 `/order` も保護対象とする。
 
 ## 認証フロー
 
@@ -57,12 +62,10 @@ compatibility_flags = ["nodejs_compat"]
 ```
 1. スタッフが /staff/login にアクセス
 2. ユーザー名・パスワードを入力して送信
-3. action: betterAuth の signIn.username() を呼び出す
+3. action: 共有 D1 試行制限を通した後、Better Auth の signInUsername() を呼び出す
 4. betterAuth が D1 の user テーブルを照会し scrypt でパスワード照合
 5. 一致 → D1 の session テーブルにセッションを作成し、セッショントークンを Cookie にセット
-6. ロールに応じてリダイレクト:
-   - staff   → /drip
-   - manager → /admin
+6. 未認証でスタッフ画面から来た場合は、保存した元の画面へ戻す。それ以外は /order へ遷移する。今回 /admin は作らない
 ```
 
 ### ログアウト
@@ -76,7 +79,20 @@ compatibility_flags = ["nodejs_compat"]
 
 ### 未認証アクセス
 
-`requireRole` がセッション不正・ロール不足を検出した場合、`redirect("/staff/login")` を throw する。
+スタッフ向け画面への未認証 GET（URL 直接入力を含む）は、元のパスとクエリを `returnTo` に保存して `/staff/login` にリダイレクトする。ログイン成功後は元の画面へ戻す。`returnTo` は同一オリジンのスタッフ用パスに限定し、外部 URL・`//` 始まり・ログイン画面自身などを拒否する。値がないか不正な場合は `/order` へ遷移する。権限不足は未認証と区別し、ログイン画面への無限リダイレクトを避ける。
+
+スタッフ用 URL への HTTP リクエストは、GET・POST ともに `worker.ts` で React Router より先に認証・認可する。JSON 等のリソースルートは未認証なら `401`、権限不足または無効化済みアカウントなら `403` を返す。スタッフ画面は未認証ならログイン画面へリダイレクトする。`/ws` も DO に転送する前に同様に検査する。画面を隠すだけ、またはクライアント側の判定だけでは保護にならない。
+
+### WebSocket の再認証
+
+`/ws` は接続中のセッション失効も反映するため、Upgrade 時の一度だけの認証にはしない。
+
+1. Worker は Upgrade 前にセッション、ロール、`isActive` を検証する。
+2. Worker は外部リクエストに含まれる認証用内部ヘッダーを検証済みのユーザー ID・セッション ID・再認証期限で上書きして DO へ転送する。再認証期限は「セッションの `expiresAt`」と「接続から5分後」の早い方とする。
+3. DO は接続ごとに再認証期限を保持し、期限に達したソケットを close code `4001` で閉じる。
+4. クライアントは切断後に再接続する。再接続は Worker を経由するため、その時点の D1 セッションと `isActive` が再検証される。
+
+これにより、通常の HTTP リクエストと新規 WebSocket 接続はセッション削除後すぐに拒否され、接続済み WebSocket も最長5分で切断される。セッションの残り時間が5分未満なら、DO はその早い期限を使用する。5分間隔は少人数・短期間の運用で D1 負荷を抑えながら失効を反映するための上限であり、実装時の負荷試験で短縮はできるが延長はしない。
 
 ## セッション管理
 
@@ -84,7 +100,7 @@ betterAuth はセッションを **D1（サーバーサイド）に保存**す�
 
 ### Cookie 設定
 
-betterAuth がデフォルトで設定する属性に加え、以下を明示的に設定する。
+Better Auth が設定する Cookie 属性と、このアプリのセッション期限は次のとおり。
 
 | 属性 | 値 | 理由 |
 |------|----|------|
@@ -95,15 +111,15 @@ betterAuth がデフォルトで設定する属性に加え、以下を明示的
 
 ### 強制無効化
 
-D1 の `session` テーブルから該当行を削除することで、発行済みセッションを即時無効化できる
+D1 の `session` テーブルから該当行を削除すると、通常の HTTP リクエストと新規 WebSocket 接続は即時に無効化される。接続済み WebSocket は上記の再認証期限により最長5分で切断される。アカウント自体を停止する場合は `user.isActive` も `false` にし、セッションが新たに作られてもスタッフ用画面・API・WebSocket を利用できないようにする。
 
 ## データベーススキーマ
 
-betterAuth CLI（`npx @better-auth/cli generate`）でマイグレーション SQL を生成し、プロジェクトの通常の migration フローに組み込む。
+Better Auth CLI（`pnpm -F web auth:generate`）で Drizzle スキーマを生成し、`pnpm -F web db:generate` で SQL を生成して通常の migration フローに組み込む。
 
 ### betterAuth が生成するテーブル
 
-**`user`**（username plugin + admin plugin によるフィールドを含む）
+**`user`**（username plugin と `user.additionalFields` によるフィールドを含む）
 
 | カラム | 説明 | 使用 |
 |--------|------|------|
@@ -111,11 +127,11 @@ betterAuth CLI（`npx @better-auth/cli generate`）でマイグレーション S
 | `name` | 表示名 | ○ |
 | `username` | ログインユーザー名（username plugin） | ○ |
 | `displayUsername` | 表示用ユーザー名（username plugin） | ○ |
-| `role` | ロール（admin plugin）デフォルト `"user"` | ○（`staff` / `manager` を使用）|
-| `email` | メールアドレス | **未使用**（スキーマには存在するが、このシステムではアカウント作成時に空または省略） |
-| `emailVerified` | メール確認済みフラグ | **未使用** |
+| `role` | サーバー管理の追加フィールド。初期値 `staff` | ○（将来 `manager` も使用可能）|
+| `isActive` | サーバー管理の利用可否フラグ。初期値 `true` | ○（無効化後は認可しない）|
+| `email` | Better Auth のアカウント作成に必要な値 | `staff-<UUID>@auth.invalid` 形式の内部用値を保存。スタッフには提示せず、ログインにも使わない |
+| `emailVerified` | メール確認済みフラグ | メール認証は行わない。確認済みと偽装しない |
 | `image` | アバター画像 URL | **未使用** |
-| `banned` / `banReason` / `banExpires` | BAN 管理（admin plugin） | 必要に応じて使用 |
 | `createdAt` / `updatedAt` | 作成・更新日時 | ○ |
 
 **`session`**
@@ -127,136 +143,63 @@ betterAuth CLI（`npx @better-auth/cli generate`）でマイグレーション S
 | `userId` | 対応するユーザー ID |
 | `expiresAt` | 有効期限 |
 | `ipAddress` / `userAgent` | クライアント情報（任意） |
-| `impersonatedBy` | 管理者代理ログイン用（admin plugin） |
 
-**`account`** / **`verification`**: betterAuth のコアスキーマとして生成されるが、このシステムでは未使用（OAuth 未使用のため）。
+**`account`** はパスワード認証の credential 情報を保持するため使用する。**`verification`** は Better Auth のコアスキーマとして生成されるが、今回メール認証・メール再設定は使用しない。
 
-## betterAuth セットアップ
+### アカウント発行と内部用メール
 
-### auth インスタンスの生成
+- 当方がスタッフ用のユーザー名・初期パスワードを発行し、安全な経路で先方へ渡す。セルフサインアップは公開しない。
+- `username` プラグインは email/password 認証を拡張するため、作成時の `email` は省略・空欄にできない。内部用メールは `staff-<ランダムUUID>@auth.invalid` 形式で生成する。ユーザー名は含めない。Better Auth の登録時検証と D1 の `email` 一意制約の両方で重複を防ぐ。
+- `.invalid` は配送できない予約ドメインであり、先方の個人メールアドレスや受信箱は要求しない。採用した Better Auth バージョンでこの形式の登録・ユーザー名ログインを Worker テストで確認した。実在する他人のアドレスは使わない。
+- メール認証とメール送信によるパスワード再設定は使用しない。パスワード紛失時は、下記の手順で旧アカウントを無効化して代替アカウントを発行する。同じアカウントのパスワードを直接書き換えない。
 
-D1 バインディングはリクエストごとに `context.cloudflare.env` から取得するため、ファクトリ関数として定義する。
+### 初期スタッフアカウントの投入
 
-```ts
-// app/lib/auth.server.ts
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { username } from "better-auth/plugins";
-import { admin } from "better-auth/plugins";
-import { drizzle } from "drizzle-orm/d1";
+1. 本番アプリでは `emailAndPassword.disableSignUp: true` を常時維持する。公開サインアップを一時的にも有効にしない。
+2. 本番 D1 にのみ接続する、公開 HTTP 入口のない一回限りの `provision-worker.ts` を `wrangler.provision.toml` で別途デプロイし、`scheduled()` で実行する。この処理内だけ、同じスキーマ設定で `disableSignUp: false`、`autoSignIn: false` の Better Auth インスタンスを生成する。
+3. プロビジョニング処理から `auth.api.signUpEmail()` にユーザー名・内部用メール・初期パスワード・表示名を渡し、Better Auth にパスワードのハッシュ化と `user` / `account` の作成を任せる。手書き SQL や独自ハッシュでパスワードを投入しない。`role` はサーバー管理の既定値 `staff` とする。
+4. 実行前に対象ユーザー名の重複を確認し、内部用メールはランダム UUID と D1 の一意制約で重複を防ぐ。実行後に件数・ロール・ユーザー名ログインを確認する。パスワードをログやリポジトリに残さない。再実行時に同じスタッフを重複作成しないようにする。
+5. 投入が完了したら一回限りの処理・トリガー・投入用の秘密情報を撤去する。本番アプリの公開登録が引き続き拒否されることを確認する。
 
-export function createAuth(env: Env) {
-  return betterAuth({
-    database: drizzleAdapter(drizzle(env.DB), {
-      provider: "sqlite",
-    }),
-    plugins: [
-      username(),
-      admin(),
-    ],
-    session: {
-      expiresIn: 43200, // 12時間
-    },
-    secret: env.BETTER_AUTH_SECRET,
-    baseURL: env.BETTER_AUTH_URL,
-  });
-}
+本番 D1 への実行・撤去手順は [スタッフ認証の運用手順](../operations/staff-auth.md) に記載する。通常アプリの `disableSignUp: true` のインスタンスから `signUpEmail()` を呼ぶだけでは投入できない。
 
-export type Auth = ReturnType<typeof createAuth>;
-```
+### パスワード紛失時の代替アカウント発行
 
-### betterAuth API ルート
+パスワードを忘れた本人には既存セッションや現在のパスワードを要求できず、メールによるリセットも行わないため、Better Auth の本人向け `changePassword()` / `setPassword()` は復旧手段に使わない。`admin` プラグインも本番アプリには追加せず、初期投入と同じ非公開のプロビジョニング処理で次の操作を行う。
 
-betterAuth のすべての認証エンドポイント（ログイン・ログアウト・セッション取得など）を単一のキャッチオールルートで受け付ける。
+1. 当方が事前に定めた連絡先で本人確認を行い、対象のユーザー ID とユーザー名を確定する。
+2. `disableSignUp: false`、`autoSignIn: false` のプロビジョニング用 Better Auth インスタンスから `auth.api.signUpEmail()` を呼び、仮ユーザー名で代替アカウントと credential を先に作成する。パスワードハッシュを直接生成・更新しない。
+3. パラメーター化した D1 の `batch()` で、対象ユーザーの `isActive` を `false` にし、全 `session` と credential の `account` を削除する。同じ batch 内で旧ユーザー名を一意な `retired_<ランダム値>` に変更し、代替アカウントの仮ユーザー名を元のユーザー名または合意した新しいユーザー名に変更する。batch が失敗した場合は仮アカウントを削除し、旧アカウントを維持する。
+4. 旧ユーザーのログイン、既存セッション、新規 WebSocket 接続が拒否されることと、代替アカウントのユーザー名ログインが成功することを確認する。
+5. 初期パスワードを安全な経路で本人に渡し、処理・トリガー・秘密情報を撤去する。再実行時は旧ユーザーの無効化と代替アカウントの存在を確認し、重複作成しない。
 
-```ts
-// app/routes/api.auth.$.ts
-import { createAuth } from "~/lib/auth.server";
-import type { Route } from "./+types/api.auth.$";
+現行の業務データはスタッフのユーザー ID を所有者として参照しないため、代替アカウントへ移行できる。将来、操作履歴などがユーザー ID を参照する場合は旧レコードを削除せず保持し、履歴との対応を保つ。
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  return createAuth(context.cloudflare.env).handler(request);
-}
+## Better Auth セットアップ
 
-export async function action({ request, context }: Route.ActionFunctionArgs) {
-  return createAuth(context.cloudflare.env).handler(request);
-}
-```
+共通設定は `apps/web/app/lib/auth-options.ts` に置き、CLI 用 `apps/web/auth.ts`、通常アプリ用 `apps/web/app/lib/auth.server.ts`、非公開の発行用 `apps/web/provision-worker.ts` で共有する。D1 には `@better-auth/drizzle-adapter` を使う。通常アプリは常に `disableSignUp: true`、発行用 Worker だけは `disableSignUp: false` と `autoSignIn: false` にする。
+
+認証スキーマは `pnpm -F web auth:generate` で `apps/web/db/auth-schema.ts` に生成した。Drizzle の `db:generate` で作った `0010` マイグレーションを通常の D1 migration フローに含める。ログイン試行制限用テーブルは `0011` で追加した。
+
+公開 `/api/auth/*` 入口は設けない。ログイン・ログアウト・セッション照会はスタッフ用 action とガードから Better Auth のサーバー API を直接呼ぶ。Better Auth 側でもサインアップと `/is-username-available` を無効化する。ログイン action には D1 の原子的なカウンターを使った試行制限（IP とユーザー名ごとに1分5回）を適用する。実装は `apps/web/app/lib/login-rate-limit.server.ts`。
 
 ## React Router 実装パターン
 
-### `requireRole` ユーティリティ
+`apps/web/app/lib/auth.server.ts` の `authorizeStaff` が D1 セッション、`role === "staff"`、`isActive === true` を検査する。`guardStaffRequest` がスタッフ用パスを判定し、未認証の画面リクエストは安全な `returnTo` 付きで `/staff/login` へリダイレクトする。リソースルートは未認証に `401`、権限不足に `403` を返す。返却先とスタッフ用パスの判定は `apps/web/app/lib/auth-url.ts` に置く。
 
-数値レベルではなく、**許可ロールの明示的な列挙**でガードする。
+`worker.ts` が `guardStaffRequest` を React Router の `requestHandler` より前に呼ぶ。`/order`、`/drip`、`/drip2`、`/cashier` 配下は一括して保護し、各 `loader` / `action` にガードを重複して置かない。React Router の画面データ用 `.data` URL も元のパスに戻して判定する。リソースルートも同じ入口を通る。スタッフ用 URL と公開 `/mobile` の判定は `auth.server.workers.test.ts` で確認する。
 
-```ts
-// app/lib/auth.server.ts（上記ファイルに追記）
-import { redirect } from "react-router";
+`/ws` は React Router より前の Worker で `authorizeStaff` を呼び、検証した内部ヘッダーだけを DO に渡す。DO はヘッダーの欠落・不正値を拒否し、セッション期限または接続後5分の早い方で接続を閉じる。
 
-export type Role = "staff" | "manager";
+## 今回作らない機能
 
-export async function requireRole(
-  request: Request,
-  env: Env,
-  allowedRoles: Role[]
-): Promise<{ userId: string; role: Role }> {
-  const session = await createAuth(env).api.getSession({
-    headers: request.headers,
-  });
-
-  if (!session || !allowedRoles.includes(session.user.role as Role)) {
-    throw redirect("/staff/login");
-  }
-
-  return { userId: session.user.id, role: session.user.role as Role };
-}
-```
-
-### レイアウトルートのガード
-
-```ts
-// app/routes/_drip.tsx  /  app/routes/_cashier.tsx
-import { requireRole } from "~/lib/auth.server";
-import type { Route } from "./+types/_drip";
-
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requireRole(request, context.cloudflare.env, ["staff", "manager"]);
-  return null;
-}
-
-// app/routes/_admin.tsx
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requireRole(request, context.cloudflare.env, ["manager"]);
-  return null;
-}
-```
-
-レイアウトルートの `loader` を通過しない限り、配下の全ルート（`_drip/*`・`_cashier/*`・`_admin/*`）はレンダリングされない。子ルートに個別のガードを書く必要はない。
-
-## 管理画面（`_admin`）の機能範囲
-
-`manager` ロールのみアクセスできる管理画面に含める機能。
-
-| 機能 | 概要 |
-|------|------|
-| メニュー管理 | 商品の追加・編集・販売停止 |
-| アカウント管理 | スタッフの追加・ロール変更・削除（betterAuth admin plugin の API を使用） |
-| 売上集計 | イベント単位の売上・注文数集計 |
-| イベント設定 | 開催日（`eventId`）の作成・管理 |
-
-アカウント管理は betterAuth の admin plugin が提供するサーバー API（`auth.api.setRole()`・`auth.api.removeUser()` 等）を使って実装する。
-
-### イベントと Durable Object の関係
-
-リアルタイム同期は Durable Object（OrderDO）が担う。OrderDO のインスタンスは `event-{YYYY-MM-DD}` をキーに `idFromName` で取得される（`worker.ts:29`）。
-
-管理画面でイベント（開催日）を登録することで、その日付に対応する OrderDO インスタンスが初回 WebSocket 接続時に自動生成される。詳細は [リアルタイム同期設計](./realtime-sync.md) を参照。
+`/admin`、`manager` 専用画面、スタッフ自身によるアカウント管理画面は作らない。既存の `/order/menu-items` はスタッフ用の商品管理であり、`manager` 専用にはしない。将来 `manager` 専用機能が必要になれば、その時点でルート権限・アカウント付与方法・`admin` プラグインの要否を再検討する。
 
 ## 設計判断
 
 ### betterAuth を採用する
 
-パスワードハッシュ（scrypt）・セッション管理・アカウント管理 API を自前実装するのは、実装量は少ないが定数時間比較の実装ミスなどセキュリティバグを埋め込むリスクがある。betterAuth はこれらをテスト済みのコードとして提供し、Cloudflare D1 + Drizzle アダプタをサポートしている。
+パスワードハッシュ・セッション管理を自前実装するとセキュリティ上のミスを埋め込むリスクがある。Better Auth の認証機能と Cloudflare D1 + Drizzle アダプタを使う。今回不要な管理者向け API は追加しない。
 
 ### `nodejs_compat` を有効にする
 
@@ -264,14 +207,24 @@ betterAuth が AsyncLocalStorage を内部使用するため必要。`nodejs_com
 
 ### ロールを数値レベルで比較しない
 
-現時点では `staff ⊂ manager` の単純な包含関係が成立するが、将来「現場編集権限あり」のような非包含関係のロールが生じた場合に数値モデルが破綻する。そのため最初から許可ロールを明示列挙する方式を採る。
+`manager` を将来導入しても、数値の大小で権限を推測しない。必要なルートに許可ロールを明示列挙する方式を採る。
 
 将来さらに複雑な権限（「このロールはメニュー編集のみ可・会計は不可」など）が必要になった場合は、betterAuth の `createAccessControl()` を用いたパーミッションベースの RBAC に移行する。
 
-### `_drip` と `_cashier` を同一ロールにする
+### スタッフ画面を同一ロールにする
 
-文化祭規模では同じ人が両方の画面を担当することが多く、「ドリップ係だけキャッシャー画面を見せない」という実用的な理由がない。ロールを分けると、スタッフ追加時のオペレーションコストが増えるだけになるため統合した。
+`/order`・`/drip`・`/drip2`・`/cashier` で担当別の認証ロールを分けず、今回のスタッフは共通して `staff` とする。
+
+### メールは内部値としてのみ保持する
+
+スタッフが入力するのはユーザー名とパスワードのみ。Better Auth の標準 `username` プラグインによるアカウント作成にはメール欄が必要なので、当方が一意な内部用メール形式の値を設定する。メール認証・メール通知・メールによるパスワード再設定は今回の対象外とする。
 
 ### 外部 IdP を使わない
 
 Google などの外部 IdP を使った OAuth 認証は、文化祭の短期間・少人数運用では設定・管理のオーバーヘッドが大きい。単一アプリ完結でアカウント管理が可能なため、ユーザー名+パスワード認証のみとする。
+
+## 検証・運用手順
+
+- `staff-<UUID>@auth.invalid` の登録とユーザー名ログイン、公開サインアップとユーザー名照会の拒否は Worker テストで確認する。
+- 画面・API・WebSocket の未認証ガードと再認証期限は Worker テストで確認する。
+- 初期パスワードの受け渡し先と本人確認の連絡先は運用開始前に決める。本番投入、確認、撤去は [運用手順](../operations/staff-auth.md) に従う。

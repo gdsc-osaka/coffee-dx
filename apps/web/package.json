@@ -17,12 +17,15 @@
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:workers:watch": "vitest --config vitest.workers.config.ts",
     "db:generate": "drizzle-kit generate",
+    "auth:generate": "auth generate --config ./auth.ts --adapter drizzle --dialect sqlite --output ./db/auth-schema.ts --yes",
     "migrate:local": "wrangler d1 migrations apply coffee-dx-db --local",
     "migrate:remote": "wrangler d1 migrations apply coffee-dx-db --remote"
   },
   "dependencies": {
+    "@better-auth/drizzle-adapter": "1.7.7",
     "@react-router/cloudflare": "7.13.2",
     "bdfparser": "^2.2.5",
+    "better-auth": "1.7.7",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
@@ -51,6 +54,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.5.2",
     "@vitest/coverage-v8": "^4.1.2",
+    "auth": "1.7.7",
     "drizzle-kit": "^0.31.10",
     "jsdom": "^26.1.0",
     "oxfmt": "^0.43.0",

@@ -22,7 +22,7 @@ export default defineConfig(async () => {
     },
     test: {
       globals: true,
-      include: ["app/**/*.workers.{test,spec}.{ts,tsx}"],
+      include: ["app/**/*.workers.{test,spec}.{ts,tsx}", "*.workers.{test,spec}.ts"],
     },
   };
 });

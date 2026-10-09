@@ -8,7 +8,7 @@ import { defineConfig } from "drizzle-kit";
  * その場合は `0000_*.sql` の CREATE TABLE 順を手で直してから `migrate:local` で確認すること。
  */
 export default defineConfig({
-  schema: "./db/schema.ts",
+  schema: ["./db/schema.ts", "./db/auth-schema.ts"],
   out: "./drizzle/migrations",
   dialect: "sqlite",
 });

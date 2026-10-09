@@ -154,6 +154,13 @@ export const orderNumberCounters = sqliteTable("order_number_counters", {
   updatedAt: text("updated_at").notNull().default(jstNow),
 });
 
+/** Atomic, shared attempt counters for both staff sign-in entry points. */
+export const authLoginAttempts = sqliteTable("auth_login_attempts", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  resetAt: integer("reset_at").notNull(),
+});
+
 /**
  * 1 レコード = 1 杯の抽出単位。
  * 抽出中（brewing）は orderItemId = NULL。
@@ -210,5 +217,6 @@ export const schema = {
   orders,
   orderItems,
   orderNumberCounters,
+  authLoginAttempts,
   brewUnits,
 };

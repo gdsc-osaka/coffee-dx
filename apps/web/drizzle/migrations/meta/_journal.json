@@ -71,6 +71,20 @@
       "when": 1791135285599,
       "tag": "0009_quiet_lady_ursula",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791476180833,
+      "tag": "0010_needy_infant_terrible",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791486824512,
+      "tag": "0011_charming_rhino",
+      "breakpoints": true
     }
   ]
 }

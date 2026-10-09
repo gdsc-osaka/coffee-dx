@@ -3,6 +3,7 @@ import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
 import { MenuSection } from "./components/MenuSection";
+import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -512,6 +513,7 @@ export default function DripHome({
               />
               {isConnected ? "接続中" : "再接続中"}
             </span>
+            <StaffLogoutButton />
           </div>
         </div>
       </header>
