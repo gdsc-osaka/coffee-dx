@@ -28,7 +28,7 @@ Cloudflare の [scheduled handler](https://developers.cloudflare.com/workers/run
 事前に定めた連絡先で本人確認を行い、旧ユーザー ID と希望する新ユーザー名を確定する。既存パスワードの直接更新はしない。
 
 1. 上記と同じトリガーなし Worker をデプロイし、5個の秘密情報に加えて `RETIRE_USER_ID` を旧ユーザー ID に設定する。`STAFF_PASSWORD` は新しい初期パスワード。
-2. cron を一時的に有効にする。処理は D1 の `batch()` で旧 `user.isActive=0` にし、旧 `session` と `account` を削除する。旧ユーザー名は一意な `retired_...` に変更する。続いて Better Auth が代替アカウントを作る。途中で作成が失敗した場合、設定を修正して再実行できる。
+2. cron を一時的に有効にする。処理は Better Auth で仮ユーザー名の代替アカウントを先に作る。続く D1 の `batch()` で旧 `user.isActive=0`、旧 `session` と `account` の削除、旧ユーザー名の `retired_...` への変更、代替アカウントへのユーザー名の移動を一括で行う。代替アカウントの作成に失敗した場合は旧アカウントを維持する。
 3. 旧 ID の `is_active=0`、旧セッション・credential が0件、代替アカウントが `staff` / `is_active=1` であることを D1 で確認する。旧 Cookie と旧パスワードを拒否し、新しいパスワードでログインできることを確認する。
 4. 新しい初期パスワードを安全な経路で本人へ渡し、発行用 Worker を削除する。
 

@@ -33,12 +33,14 @@ beforeEach(async () => {
 
 describe("private staff provisioning", () => {
   it("creates a staff account once and validates username login", async () => {
-    const userId = await runProvisioning(testEnv);
+    const mixedCaseEnv = { ...testEnv, STAFF_USERNAME: "TestStaff" };
+    const userId = await runProvisioning(mixedCaseEnv);
+    expect(await runProvisioning(mixedCaseEnv)).toBe(userId);
     expect(await runProvisioning(testEnv)).toBe(userId);
-    const user = await testEnv.DB.prepare("SELECT role, is_active FROM user WHERE id = ?")
+    const user = await testEnv.DB.prepare("SELECT username, role, is_active FROM user WHERE id = ?")
       .bind(userId)
-      .first<{ role: string; is_active: number }>();
-    expect(user).toEqual({ role: "staff", is_active: 1 });
+      .first<{ username: string; role: string; is_active: number }>();
+    expect(user).toEqual({ username: "teststaff", role: "staff", is_active: 1 });
     const count = await testEnv.DB.prepare("SELECT count(*) AS count FROM user").first<{
       count: number;
     }>();
@@ -89,4 +91,24 @@ describe("private staff provisioning", () => {
     });
     expect(replacementLogin.status).toBe(200);
   }, 15_000);
+
+  it("keeps the old account usable when replacement input is rejected", async () => {
+    const oldId = await runProvisioning(testEnv);
+    await expect(
+      runProvisioning({
+        ...testEnv,
+        RETIRE_USER_ID: oldId,
+        STAFF_PASSWORD: "x".repeat(129),
+      }),
+    ).rejects.toThrow("Missing or invalid provisioning credentials");
+    const old = await testEnv.DB.prepare("SELECT is_active FROM user WHERE id = ?")
+      .bind(oldId)
+      .first<{ is_active: number }>();
+    expect(old?.is_active).toBe(1);
+    const login = await createAuth(testEnv).api.signInUsername({
+      body: { username: testEnv.STAFF_USERNAME, password: testEnv.STAFF_PASSWORD },
+      asResponse: true,
+    });
+    expect(login.status).toBe(200);
+  });
 });

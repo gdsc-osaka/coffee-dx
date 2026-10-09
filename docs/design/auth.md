@@ -170,8 +170,8 @@ Better Auth CLI（`pnpm -F web auth:generate`）で Drizzle スキーマを生�
 パスワードを忘れた本人には既存セッションや現在のパスワードを要求できず、メールによるリセットも行わないため、Better Auth の本人向け `changePassword()` / `setPassword()` は復旧手段に使わない。`admin` プラグインも本番アプリには追加せず、初期投入と同じ非公開のプロビジョニング処理で次の操作を行う。
 
 1. 当方が事前に定めた連絡先で本人確認を行い、対象のユーザー ID とユーザー名を確定する。
-2. パラメーター化した D1 の `batch()` で、対象ユーザーの `isActive` を `false` にし、全 `session` と credential の `account` を削除する。元のユーザー名を再利用する場合は、旧レコードの `username` / `displayUsername` を一意な `retired_<ランダム値>` へ変更する。パスワードハッシュを直接生成・更新しない。
-3. `disableSignUp: false`、`autoSignIn: false` のプロビジョニング用 Better Auth インスタンスから `auth.api.signUpEmail()` を呼び、元のユーザー名または合意した新しいユーザー名で代替アカウントを作成する。
+2. `disableSignUp: false`、`autoSignIn: false` のプロビジョニング用 Better Auth インスタンスから `auth.api.signUpEmail()` を呼び、仮ユーザー名で代替アカウントと credential を先に作成する。パスワードハッシュを直接生成・更新しない。
+3. パラメーター化した D1 の `batch()` で、対象ユーザーの `isActive` を `false` にし、全 `session` と credential の `account` を削除する。同じ batch 内で旧ユーザー名を一意な `retired_<ランダム値>` に変更し、代替アカウントの仮ユーザー名を元のユーザー名または合意した新しいユーザー名に変更する。batch が失敗した場合は仮アカウントを削除し、旧アカウントを維持する。
 4. 旧ユーザーのログイン、既存セッション、新規 WebSocket 接続が拒否されることと、代替アカウントのユーザー名ログインが成功することを確認する。
 5. 初期パスワードを安全な経路で本人に渡し、処理・トリガー・秘密情報を撤去する。再実行時は旧ユーザーの無効化と代替アカウントの存在を確認し、重複作成しない。
 
