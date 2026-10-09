@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import { Form, Link, useActionData, useNavigation, useSubmit } from "react-router";
 import type { Route } from "./+types/home";
 import { createDb } from "~/lib/db";
-import { requirePageStaff } from "~/lib/auth.server";
 import { getAvailableMenuItems, getMenuItemsByIds } from "~/features/menu/queries";
 import { createOrder } from "~/features/order/actions";
 import { normalizeCartItems } from "~/features/order/normalize-cart-items";
@@ -41,15 +40,13 @@ export const meta: Route.MetaFunction = () => [
   { name: "theme-color", content: "#0c0a09" },
 ];
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
+export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
   const items = await getAvailableMenuItems(db);
   return { items };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const cartJson = formData.get("cartJson");
   const isFree = formData.get("isFree") === "1";

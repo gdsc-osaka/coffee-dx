@@ -2,12 +2,14 @@ import { data } from "react-router";
 import type { Route } from "./+types/orders-history";
 import { createDb } from "~/lib/db";
 import { getRecentOrders } from "~/features/order/history-queries";
-import { requireApiStaff } from "~/lib/auth.server";
 
 const PAGE_SIZE = 10;
 
 export async function loader({ request, context }: Route.LoaderArgs) {
-  await requireApiStaff(request, context.cloudflare.env);
+  // TODO: スタッフ認証を実装する。リソースルートは _cashier レイアウトの loader を経由しないため、
+  // ここでも個別に確認する（app/routes.ts のコメント参照）。
+  // const isStaff = await verifyStaffSession(request);
+  // if (!isStaff) throw data(null, { status: 401 });
   const url = new URL(request.url);
   const cursorCreatedAt = url.searchParams.get("cursorCreatedAt");
   const cursorId = url.searchParams.get("cursorId");

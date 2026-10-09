@@ -2,10 +2,12 @@ import type { Route } from "./+types/leftover-orders";
 import { createDb } from "~/lib/db";
 import { getLeftoverOrders } from "~/features/order/history-queries";
 import { getBusinessDate } from "~/lib/order-do";
-import { requireApiStaff } from "~/lib/auth.server";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requireApiStaff(request, context.cloudflare.env);
+export async function loader({ request: _request, context }: Route.LoaderArgs) {
+  // TODO: スタッフ認証を実装する。リソースルートは _cashier レイアウトの loader を経由しないため、
+  // ここでも個別に確認する（app/routes.ts のコメント参照）。
+  // const isStaff = await verifyStaffSession(request);
+  // if (!isStaff) throw data(null, { status: 401 });
   const db = createDb(context.cloudflare.env.DB);
   const today = getBusinessDate();
   const orders = await getLeftoverOrders(db, today);
