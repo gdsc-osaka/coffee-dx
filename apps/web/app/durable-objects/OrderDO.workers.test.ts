@@ -56,15 +56,9 @@ describe("OrderDO", () => {
       else buffer.push(msg);
     });
 
-    const nextRaw = (): Promise<any> => {
+    const next = (): Promise<any> => {
       if (buffer.length > 0) return Promise.resolve(buffer.shift()!);
       return new Promise((resolve) => waiters.push(resolve));
-    };
-
-    const next = async (): Promise<any> => {
-      let message = await nextRaw();
-      while (message.type === "auth-deadline") message = await nextRaw();
-      return message;
     };
 
     const take = async (n: number): Promise<any[]> => {

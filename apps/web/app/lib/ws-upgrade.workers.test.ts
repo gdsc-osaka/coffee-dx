@@ -52,7 +52,7 @@ describe("WebSocket authorization boundary", () => {
     expect(direct.status).toBe(401);
   });
 
-  it("overwrites spoofed headers, sends deadline first, and rejects disabled users", async () => {
+  it("overwrites spoofed headers and rejects disabled users", async () => {
     const userId = await runProvisioning(testEnv);
     const login = await createAuth(testEnv).api.signInUsername({
       body: { username: testEnv.STAFF_USERNAME, password: testEnv.STAFF_PASSWORD },
@@ -69,21 +69,16 @@ describe("WebSocket authorization boundary", () => {
         "x-auth-deadline": String(Date.now() + 10_000_000),
       },
     });
-    const connectedAt = Date.now();
     const response = await handleStaffWebSocketUpgrade(request, testEnv);
     expect(response.status).toBe(101);
     const socket = response.webSocket!;
-    const firstMessage = new Promise<{ type: string; authDeadline: number; serverTime: number }>(
-      (resolve) => {
-        socket.addEventListener("message", (event) => resolve(JSON.parse(event.data as string)));
-      },
-    );
+    const firstMessage = new Promise<{ type: string }>((resolve) => {
+      socket.addEventListener("message", (event) => resolve(JSON.parse(event.data as string)));
+    });
     socket.accept();
     const message = await firstMessage;
     socket.close();
-    expect(message.type).toBe("auth-deadline");
-    expect(message.authDeadline).toBeGreaterThan(connectedAt);
-    expect(message.authDeadline - message.serverTime).toBeLessThanOrEqual(300_000);
+    expect(message.type).toBe("SNAPSHOT");
 
     await testEnv.DB.prepare("UPDATE user SET is_active = 0 WHERE id = ?").bind(userId).run();
     expect((await handleStaffWebSocketUpgrade(request, testEnv)).status).toBe(403);

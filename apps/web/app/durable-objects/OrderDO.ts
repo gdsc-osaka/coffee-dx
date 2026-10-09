@@ -348,9 +348,6 @@ export class OrderDurableObject implements DurableObject {
     };
     const timer = setTimeout(closeExpired, Math.max(0, deadline - Date.now()));
     this.sessions.set(server, { deadline, timer });
-    server.send(
-      JSON.stringify({ type: "auth-deadline", authDeadline: deadline, serverTime: Date.now() }),
-    );
 
     const snapshotOrders = Array.from(this.orders.values()).filter(
       (o) => o.status !== "completed" && o.status !== "cancelled",
