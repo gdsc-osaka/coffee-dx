@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
-import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
+import { requirePageStaff } from "~/lib/auth.server";
 import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { MenuSection } from "./components/MenuSection";
+import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 
 // ---------------------------------------------------------------------------
 // 型定義
@@ -99,7 +100,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await requireApiStaff(request, context.cloudflare.env);
+  await requirePageStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const eventId = formData.get("eventId");
@@ -521,6 +522,7 @@ export default function DripHome({
               />
               {isConnected ? "接続中" : "再接続中"}
             </span>
+            <StaffLogoutButton />
           </div>
         </div>
       </header>

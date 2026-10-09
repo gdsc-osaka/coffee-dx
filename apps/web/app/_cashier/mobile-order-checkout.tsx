@@ -7,7 +7,7 @@ import {
 } from "~/features/mobile-order/actions";
 import { mobileOrderAcceptanceIntentSchema } from "~/features/mobile-order/schemas";
 import { getBusinessDate, getOrderDOStub } from "~/lib/order-do";
-import { requireApiStaff, requirePageStaff } from "~/lib/auth.server";
+import { requirePageStaff } from "~/lib/auth.server";
 
 type PendingMobileOrderItem = {
   menuItemId: string;
@@ -182,7 +182,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await requireApiStaff(request, context.cloudflare.env);
+  await requirePageStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const acceptanceIntent = mobileOrderAcceptanceIntentSchema.safeParse(intent);

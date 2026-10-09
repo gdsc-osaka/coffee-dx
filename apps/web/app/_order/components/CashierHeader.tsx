@@ -10,6 +10,7 @@ import {
 import { Link } from "react-router";
 import type { ConnectionStatus } from "~/features/printer/printer-client";
 import type { PrinterStatus } from "lx-printer/lx-d02";
+import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 
 interface CashierHeaderProps {
   printerStatus: ConnectionStatus;
@@ -88,6 +89,7 @@ export function CashierHeader({
           >
             <Settings className="size-3 text-stone-400" />
           </button>
+          <StaffLogoutButton dark />
         </div>
       </div>
     </div>
