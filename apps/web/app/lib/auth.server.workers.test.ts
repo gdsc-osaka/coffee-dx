@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import * as authSchema from "../../db/auth-schema";
 import { createAuthOptions } from "./auth-options";
-import { authorizeStaff, createAuth, requireApiStaff, requirePageStaff } from "./auth.server";
+import { authorizeStaff, createAuth, guardStaffRequest } from "./auth.server";
 import { action as loginAction } from "../_staff/login";
 import { action as logoutAction } from "../_staff/logout";
 
@@ -67,11 +67,12 @@ describe("staff authentication", () => {
       headers: { Cookie: cookie!.split(";")[0] },
     });
     expect((await authorizeStaff(request, testEnv)).ok).toBe(true);
+    expect(await guardStaffRequest(request, testEnv)).toBeNull();
 
     await testEnv.DB.prepare("UPDATE user SET is_active = 0 WHERE username = ?")
       .bind("teststaff")
       .run();
-    await expect(requireApiStaff(request, testEnv)).rejects.toMatchObject({ status: 403 });
+    expect((await guardStaffRequest(request, testEnv))?.status).toBe(403);
   });
 
   it("disables signup and username availability in Better Auth", async () => {
@@ -100,20 +101,27 @@ describe("staff authentication", () => {
     expect(availability.status).toBe(404);
   });
 
-  it("redirects pages with returnTo and rejects API requests with 401", async () => {
+  it("guards staff pages and resources at the Worker boundary", async () => {
     const request = new Request("https://example.com/cashier?tab=history");
-    await expect(requirePageStaff(request, testEnv)).rejects.toMatchObject({
-      status: 302,
-      headers: expect.objectContaining({}),
-    });
-    try {
-      await requirePageStaff(request, testEnv);
-    } catch (response) {
-      expect((response as Response).headers.get("Location")).toBe(
-        "/staff/login?returnTo=%2Fcashier%3Ftab%3Dhistory",
-      );
-    }
-    await expect(requireApiStaff(request, testEnv)).rejects.toMatchObject({ status: 401 });
+    const response = await guardStaffRequest(request, testEnv);
+    expect(response?.status).toBe(302);
+    expect(response?.headers.get("Location")).toBe(
+      "/staff/login?returnTo=%2Fcashier%3Ftab%3Dhistory",
+    );
+    expect(
+      (await guardStaffRequest(new Request("https://example.com/cashier/orders-history"), testEnv))
+        ?.status,
+    ).toBe(401);
+    expect(
+      (await guardStaffRequest(new Request("https://example.com/cashier/leftover-orders"), testEnv))
+        ?.status,
+    ).toBe(401);
+    expect(
+      (await guardStaffRequest(new Request("https://example.com/ORD%45R"), testEnv))?.status,
+    ).toBe(302);
+    expect(
+      await guardStaffRequest(new Request("https://example.com/mobile/store-token"), testEnv),
+    ).toBeNull();
   });
 
   it("sets a session cookie on form login and revokes it on logout", async () => {
