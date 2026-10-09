@@ -110,7 +110,9 @@ describe("mobile order checkout action", () => {
     if (!result.ok) expect(result.error).toContain("再度お会計せず");
 
     const loaded = await loader({
-      request: new Request("https://example.com/order/mobile-checkout", { headers: { Cookie: cookie } }),
+      request: new Request("https://example.com/order/mobile-checkout", {
+        headers: { Cookie: cookie },
+      }),
       context: { cloudflare: { env: testEnv } },
     } as unknown as Parameters<typeof loader>[0]);
     expect(loaded.paidOrders).toEqual([expect.objectContaining({ id: requestId })]);
