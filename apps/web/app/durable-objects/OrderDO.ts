@@ -1226,7 +1226,11 @@ export class OrderDurableObject implements DurableObject {
     for (const [session, metadata] of this.sessions) {
       if (Date.now() >= metadata.deadline) {
         this.removeSession(session);
-        session.close(4001, "Authentication expired");
+        try {
+          session.close(4001, "Authentication expired");
+        } catch {
+          // Already closed; continue broadcasting to other sessions.
+        }
         continue;
       }
       try {
