@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
-import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { ProductionDashboard } from "./components/ProductionDashboard";
 import { StaffLogoutButton } from "~/components/StaffLogoutButton";
 import { BrewLane, type LaneActiveDescriptor } from "./components/BrewLane";
@@ -313,18 +312,12 @@ export default function DripHome({
   // WebSocket 接続
   useEffect(() => {
     let socket: WebSocket | null = null;
-    let disposeAuthDeadline = () => {};
     let unmounted = false;
 
     const connect = () => {
       if (unmounted) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const currentSocket = new WebSocket(
-        `${protocol}//${window.location.host}/ws?eventId=${eventId}`,
-      );
-      const authDeadline = createWebSocketAuthDeadline(currentSocket);
-      disposeAuthDeadline = () => authDeadline.dispose();
-      socket = currentSocket;
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws?eventId=${eventId}`);
 
       socket.onopen = () => {
         retryCountRef.current = 0;
@@ -335,7 +328,6 @@ export default function DripHome({
       socket.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data) as ServerMessage;
-          if (!authDeadline.accept(msg)) return;
 
           if (msg.type === "SNAPSHOT") {
             const nextOrders: Record<string, OrderData> = {};
@@ -404,12 +396,10 @@ export default function DripHome({
           }
         } catch {
           setConnectionError("メッセージ受信時にエラーが発生しました");
-          currentSocket.close();
         }
       };
 
       socket.onclose = () => {
-        authDeadline.dispose();
         setIsConnected(false);
         const delay = Math.min(1000 * 2 ** retryCountRef.current, 30_000);
         retryCountRef.current += 1;
@@ -418,7 +408,6 @@ export default function DripHome({
 
       socket.onerror = () => {
         setConnectionError("接続エラー。自動で再接続します。");
-        currentSocket.close();
       };
     };
 
@@ -427,7 +416,6 @@ export default function DripHome({
     return () => {
       unmounted = true;
       if (reconnectTimeoutRef.current) window.clearTimeout(reconnectTimeoutRef.current);
-      disposeAuthDeadline();
       if (socket) socket.close();
     };
   }, [eventId]);

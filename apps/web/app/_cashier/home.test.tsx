@@ -66,10 +66,6 @@ type ServerMessage =
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
-  static OPEN = 1;
-  static CLOSED = 3;
-  readyState = 0;
-  private authenticated = false;
 
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -81,31 +77,14 @@ class MockWebSocket {
   }
 
   close() {
-    this.readyState = MockWebSocket.CLOSED;
     this.onclose?.({} as CloseEvent);
   }
 
   emitOpen() {
-    this.readyState = MockWebSocket.OPEN;
     this.onopen?.({} as Event);
-    this.emitAuth();
-  }
-
-  private emitAuth() {
-    if (this.authenticated) return;
-    this.authenticated = true;
-    const serverTime = Date.now();
-    this.onmessage?.({
-      data: JSON.stringify({
-        type: "auth-deadline",
-        serverTime,
-        authDeadline: serverTime + 30_000,
-      }),
-    } as MessageEvent);
   }
 
   emitMessage(message: ServerMessage) {
-    this.emitAuth();
     this.onmessage?.({ data: JSON.stringify(message) } as MessageEvent);
   }
 }
