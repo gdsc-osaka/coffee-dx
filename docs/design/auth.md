@@ -51,7 +51,7 @@ compatibility_flags = ["nodejs_compat"]
 | `/ws` | `staff`（将来は `manager` も許可可能） | React Router より前の Worker `fetch` で Upgrade 前に認証し、DO で再認証期限を強制 |
 | `/staff/login` | なし（パブリック） | — |
 | `/staff/logout` | セッションを削除する POST | Better Auth の `signOut` |
-| `/api/auth/*` | ログイン等の必要な操作のみ公開 | Better Auth ハンドラと公開エンドポイントの制限 |
+| `/api/auth/*` | 公開しない | Better Auth のサーバー API をスタッフ用 action から直接呼ぶ |
 
 現行 `routes.ts` では `/order/mobile-checkout` と `/order/menu-items` の実装ファイルが `_cashier` ディレクトリにあるが、認可はファイルの置き場所ではなく実際の URL・ルート定義に従う。`_mobile` の画面は公開対象であり、スタッフ用レイアウトの認証を要求しない。ルート `/` のリダイレクト先 `/order` も保護対象とする。
 
@@ -183,7 +183,7 @@ Better Auth CLI（`pnpm -F web auth:generate`）で Drizzle スキーマを生�
 
 認証スキーマは `pnpm -F web auth:generate` で `apps/web/db/auth-schema.ts` に生成した。Drizzle の `db:generate` で作った `0010` マイグレーションを通常の D1 migration フローに含める。ログイン試行制限用テーブルは `0011` で追加した。
 
-公開 `/api/auth/*` 入口は `apps/web/app/_staff/auth-api.ts` で、`sign-in/username`、`sign-out`、`get-session` だけを許可する。Better Auth 側でもサインアップと `/is-username-available` を無効化する。画面の直接ログイン action と公開認証入口には、D1 の原子的なカウンターを使った同じ試行制限（IP とユーザー名ごとに1分5回）を適用する。実装は `apps/web/app/lib/login-rate-limit.server.ts`。
+公開 `/api/auth/*` 入口は設けない。ログイン・ログアウト・セッション照会はスタッフ用 action とガードから Better Auth のサーバー API を直接呼ぶ。Better Auth 側でもサインアップと `/is-username-available` を無効化する。ログイン action には D1 の原子的なカウンターを使った試行制限（IP とユーザー名ごとに1分5回）を適用する。実装は `apps/web/app/lib/login-rate-limit.server.ts`。
 
 ## React Router 実装パターン
 

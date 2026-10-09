@@ -18,7 +18,7 @@
 3. 次の秘密情報を `pnpm exec wrangler secret put <名前> --config wrangler.provision.toml` で設定する。`BETTER_AUTH_SECRET` は通常アプリと同じ値、`BETTER_AUTH_URL` は通常アプリと同じオリジン。`STAFF_USERNAME`、`STAFF_PASSWORD`、`STAFF_DISPLAY_NAME` は発行対象の値。初回発行では `RETIRE_USER_ID` を設定しない。
 4. `pnpm exec wrangler secret list --config wrangler.provision.toml` で5個の名前を確認する。パスワードをコマンド引数、リポジトリ、ログに残さない。
 5. `pnpm exec wrangler deploy --config wrangler.provision.toml --triggers '* * * * *'` で一時的に毎分の cron を有効にする。実行ログのユーザー ID を確認する。同じユーザー名の有効アカウントがあれば再実行しても増やさない。
-6. `pnpm exec wrangler d1 execute coffee-dx-db --remote --command "SELECT id, username, role, is_active FROM user WHERE username = '発行したユーザー名'"` で1件、`role=staff`、`is_active=1` を確認する。ログイン画面でユーザー名とパスワードの動作を確認し、公開 `/api/auth/sign-up/email` と `/api/auth/is-username-available` が拒否されることを確認する。
+6. `pnpm exec wrangler d1 execute coffee-dx-db --remote --command "SELECT id, username, role, is_active FROM user WHERE username = '発行したユーザー名'"` で1件、`role=staff`、`is_active=1` を確認する。ログイン画面でユーザー名とパスワードの動作を確認し、`/api/auth/*` に公開ルートがないことを確認する。
 7. `pnpm exec wrangler delete coffee-dx-provision --config wrangler.provision.toml` で cron と発行用 Worker・秘密情報を撤去する。通常アプリのサインアップ無効設定は維持する。
 
 Cloudflare の [scheduled handler](https://developers.cloudflare.com/workers/runtime-apis/handlers/scheduled/) と [Wrangler の cron 設定](https://developers.cloudflare.com/workers/wrangler/configuration/#triggers) に従う。ローカルでは `pnpm exec wrangler dev --config wrangler.provision.toml --test-scheduled` の `/cdn-cgi/local/scheduled` で検証できるが、ローカル D1 とローカル秘密情報のみを使う。

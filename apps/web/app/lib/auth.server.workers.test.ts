@@ -74,7 +74,7 @@ describe("staff authentication", () => {
     await expect(requireApiStaff(request, testEnv)).rejects.toMatchObject({ status: 403 });
   });
 
-  it("rejects public signup and username availability checks", async () => {
+  it("disables signup and username availability in Better Auth", async () => {
     const auth = createAuth(testEnv);
     const signup = await auth.handler(
       new Request("https://example.com/api/auth/sign-up/email", {

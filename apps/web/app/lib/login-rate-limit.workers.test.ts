@@ -1,8 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { action as apiAction } from "../_staff/auth-api";
-import { action as loginAction } from "../_staff/login";
 import { checkLoginRateLimit } from "./login-rate-limit.server";
 
 const testEnv = {
@@ -34,33 +32,6 @@ describe("shared login attempt limit", () => {
       .bind(Date.now() - 1)
       .run();
     expect(await checkLoginRateLimit(request, testEnv, "alice")).toBeNull();
-  });
-
-  it("shares the budget between the form action and public auth API", async () => {
-    const context = { cloudflare: { env: testEnv } };
-    for (let i = 0; i < 3; i++) {
-      const request = new Request("https://example.com/staff/login", {
-        method: "POST",
-        headers: { "CF-Connecting-IP": "192.0.2.12" },
-        body: new URLSearchParams({ username: "alice", password: "wrong-password" }),
-      });
-      const result = await loginAction({ request, context } as unknown as Parameters<
-        typeof loginAction
-      >[0]);
-      expect(result).toMatchObject({ error: expect.any(String) });
-    }
-    for (let i = 0; i < 3; i++) {
-      const request = new Request("https://example.com/api/auth/sign-in/username", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.12" },
-        body: JSON.stringify({ username: "alice", password: "wrong-password" }),
-      });
-      const result = await apiAction({ request, context } as unknown as Parameters<
-        typeof apiAction
-      >[0]);
-      if (i < 2) expect(result.status).not.toBe(429);
-      else expect(result.status).toBe(429);
-    }
   });
 
   it("deletes expired counters while retaining active windows", async () => {
