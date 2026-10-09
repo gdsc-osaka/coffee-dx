@@ -3,7 +3,6 @@ import { Link, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { OrderStatusCard } from "~/components/order-status-card";
 import { callOrderDO, getBusinessDate, getOrderDOStub } from "~/lib/order-do";
-import { requirePageStaff } from "~/lib/auth.server";
 import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { LeftoverOrdersBanner } from "./components/LeftoverOrdersBanner";
 import { StaffLogoutButton } from "~/components/StaffLogoutButton";
@@ -72,13 +71,11 @@ type VirtualOrder = Omit<CashierOrder, "items"> & {
   serverStatus: OrderStatus;
 };
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
+export async function loader(_args: Route.LoaderArgs) {
   return { eventId: getBusinessDate() };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const orderId = formData.get("orderId");

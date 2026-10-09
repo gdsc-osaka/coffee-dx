@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/home";
 import { callOrderDO, getBusinessDate, getOrderDOStub, isValidEventId } from "~/lib/order-do";
-import { requirePageStaff } from "~/lib/auth.server";
 import { createWebSocketAuthDeadline } from "~/lib/ws-auth-client";
 import { MenuSection } from "./components/MenuSection";
 import { StaffLogoutButton } from "~/components/StaffLogoutButton";
@@ -88,8 +87,7 @@ import { createDb } from "~/lib/db";
 import { menuItems } from "~/../db/schema";
 import { and, eq } from "drizzle-orm";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
+export async function loader({ context }: Route.LoaderArgs) {
   const db = createDb(context.cloudflare.env.DB);
   const menus = await db
     .select({ id: menuItems.id, name: menuItems.name })
@@ -100,7 +98,6 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
-  await requirePageStaff(request, context.cloudflare.env);
   const formData = await request.formData();
   const intent = formData.get("intent");
   const eventId = formData.get("eventId");

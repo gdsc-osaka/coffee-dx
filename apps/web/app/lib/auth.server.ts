@@ -67,22 +67,3 @@ export async function guardStaffRequest(request: Request, env: Env): Promise<Res
   const returnTo = staffReturnToFromRequest(request);
   return redirect(`/staff/login?returnTo=${encodeURIComponent(returnTo)}`);
 }
-
-// Kept while the route handlers migrate to the Worker boundary guard.
-export async function requirePageStaff(request: Request, env: Env): Promise<AuthorizedUser> {
-  const result = await authorizeStaff(request, env);
-  if (result.ok) return result.user;
-  if (result.status === 401) {
-    const returnTo = staffReturnToFromRequest(request);
-    throw redirect(`/staff/login?returnTo=${encodeURIComponent(returnTo)}`);
-  }
-  throw new Response("Forbidden", { status: 403 });
-}
-
-export async function requireApiStaff(request: Request, env: Env): Promise<AuthorizedUser> {
-  const result = await authorizeStaff(request, env);
-  if (result.ok) return result.user;
-  throw new Response(result.status === 401 ? "Unauthorized" : "Forbidden", {
-    status: result.status,
-  });
-}

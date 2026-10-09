@@ -45,9 +45,9 @@ compatibility_flags = ["nodejs_compat"]
 | ルートグループ | 許可ロール | ガードする場所 |
 |--------------|-----------|--------------|
 | `/mobile/:storeToken`、`/mobile/orders/:publicToken`、`/mobile/orders/:publicToken/status` | 公開。ただし店舗トークン・注文控えトークンをそれぞれ検証 | 各ルートの `loader` / `action` |
-| `/order`、`/order/mobile-checkout`、`/order/menu-items` | `staff`（将来は `manager` も許可可能） | `_order` レイアウトと各 `loader` / `action` |
-| `/drip`、`/drip2` | 同上 | `_drip` / `_drip2` レイアウトと各 `loader` / `action` |
-| `/cashier`、`/cashier/orders-history`、`/cashier/leftover-orders` | 同上 | `_cashier` レイアウトと各 `loader` / `action`。リソースルートは個別にガード |
+| `/order`、`/order/mobile-checkout`、`/order/menu-items` | `staff`（将来は `manager` も許可可能） | Worker の HTTP 入口 |
+| `/drip`、`/drip2` | 同上 | Worker の HTTP 入口 |
+| `/cashier`、`/cashier/orders-history`、`/cashier/leftover-orders` | 同上 | Worker の HTTP 入口。リソースルートも含む |
 | `/ws` | `staff`（将来は `manager` も許可可能） | React Router より前の Worker `fetch` で Upgrade 前に認証し、DO で再認証期限を強制 |
 | `/staff/login` | なし（パブリック） | — |
 | `/staff/logout` | セッションを削除する POST | Better Auth の `signOut` |
@@ -81,7 +81,7 @@ compatibility_flags = ["nodejs_compat"]
 
 スタッフ向け画面への未認証 GET（URL 直接入力を含む）は、元のパスとクエリを `returnTo` に保存して `/staff/login` にリダイレクトする。ログイン成功後は元の画面へ戻す。`returnTo` は同一オリジンのスタッフ用パスに限定し、外部 URL・`//` 始まり・ログイン画面自身などを拒否する。値がないか不正な場合は `/order` へ遷移する。権限不足は未認証と区別し、ログイン画面への無限リダイレクトを避ける。
 
-スタッフ用 `action` は直接 POST されてもサーバー側で認証・認可する。JSON 等のリソースルートは親レイアウトの `loader` に依存せず各ハンドラで認証し、未認証なら `401`、権限不足または無効化済みアカウントなら `403` を返す。`/ws` は `worker.ts` から DO に転送する前に同様に検査する。画面を隠すだけ、またはクライアント側の判定だけでは保護にならない。
+スタッフ用 URL への HTTP リクエストは、GET・POST ともに `worker.ts` で React Router より先に認証・認可する。JSON 等のリソースルートは未認証なら `401`、権限不足または無効化済みアカウントなら `403` を返す。スタッフ画面は未認証ならログイン画面へリダイレクトする。`/ws` も DO に転送する前に同様に検査する。画面を隠すだけ、またはクライアント側の判定だけでは保護にならない。
 
 ### WebSocket の再認証
 
@@ -187,9 +187,9 @@ Better Auth CLI（`pnpm -F web auth:generate`）で Drizzle スキーマを生�
 
 ## React Router 実装パターン
 
-`apps/web/app/lib/auth.server.ts` の `authorizeStaff` が D1 セッション、`role === "staff"`、`isActive === true` を検査する。`requirePageStaff` は未認証を安全な `returnTo` 付きで `/staff/login` へリダイレクトし、`requireApiStaff` は未認証に `401`、権限不足に `403` を返す。返却先の検証は `apps/web/app/lib/auth-url.ts` に置く。
+`apps/web/app/lib/auth.server.ts` の `authorizeStaff` が D1 セッション、`role === "staff"`、`isActive === true` を検査する。`guardStaffRequest` がスタッフ用パスを判定し、未認証の画面リクエストは安全な `returnTo` 付きで `/staff/login` へリダイレクトする。リソースルートは未認証に `401`、権限不足に `403` を返す。返却先とスタッフ用パスの判定は `apps/web/app/lib/auth-url.ts` に置く。
 
-`_order.tsx`、`_drip.tsx`、`_drip2.tsx`、`_cashier.tsx` のレイアウト `loader` と、各スタッフ画面の `loader` / フォーム `action` は個別に `requirePageStaff` を呼ぶ。`/cashier/orders-history` と `/cashier/leftover-orders` はリソースルートなので `requireApiStaff` を直接呼ぶ。親レイアウトの `loader` には子ハンドラへの直接リクエストの保護を委ねない。対象一覧の未認証回帰テストは `apps/web/app/lib/staff-routes.workers.test.ts`。
+`worker.ts` が `guardStaffRequest` を React Router の `requestHandler` より前に呼ぶ。`/order`、`/drip`、`/drip2`、`/cashier` 配下は一括して保護し、各 `loader` / `action` にガードを重複して置かない。リソースルートも同じ入口を通る。スタッフ用 URL と公開 `/mobile` の判定は `auth.server.workers.test.ts` で確認する。
 
 `/ws` は React Router より前の Worker で `authorizeStaff` を呼び、検証した内部ヘッダーだけを DO に渡す。DO はヘッダーの欠落・不正値を拒否し、セッション期限または接続後5分の早い方で接続を閉じる。
 
