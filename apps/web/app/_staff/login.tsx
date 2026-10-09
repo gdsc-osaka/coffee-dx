@@ -2,6 +2,7 @@ import { Form, redirect, useActionData, useNavigation } from "react-router";
 import type { Route } from "./+types/login";
 import { authorizeStaff, createAuth } from "~/lib/auth.server";
 import { safeStaffReturnTo } from "~/lib/auth-url";
+import { checkLoginRateLimit } from "~/lib/login-rate-limit.server";
 
 export const meta: Route.MetaFunction = () => [{ title: "スタッフログイン" }];
 
@@ -21,6 +22,9 @@ export async function action({ request, context }: Route.ActionArgs) {
   if (typeof username !== "string" || typeof password !== "string" || !username || !password) {
     return { error: "ユーザー名とパスワードを入力してください。", returnTo };
   }
+  const rateLimit = await checkLoginRateLimit(request, context.cloudflare.env, username);
+  if (rateLimit)
+    return { error: "試行回数が多すぎます。しばらく待ってから再試行してください。", returnTo };
 
   try {
     const response = await createAuth(context.cloudflare.env).api.signInUsername({
