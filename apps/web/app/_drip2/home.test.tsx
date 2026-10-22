@@ -15,6 +15,11 @@ vi.mock("react-router", () => ({
   useActionData: useActionDataMock,
   useNavigation: useNavigationMock,
   useSubmit: useSubmitMock,
+  useFetcher: () => ({
+    submit: vi.fn(),
+    state: "idle",
+    data: undefined,
+  }),
 }));
 
 // テストではタイマー UI を有効にして検証する。本番では一時的に無効化中。
@@ -177,10 +182,10 @@ describe("DripHome", () => {
       });
     });
 
-    // 抽出レーン section にスワイプ完了・長押し取消の操作子が出る
+    // 抽出レーン section に完了・取消の操作子が出る
     const lanesSection = await waitFor(() => {
       const section = screen.getByRole("region", { name: "抽出レーン" });
-      expect(within(section).getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
+      expect(within(section).getByRole("button", { name: "完了" })).toBeInTheDocument();
       return section;
     });
 
@@ -232,7 +237,11 @@ describe("DripHome", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: /スワイプで完了/ })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("region", { name: "抽出レーン" })).getByRole("button", {
+          name: "完了",
+        }),
+      ).toBeInTheDocument();
     });
 
     await act(async () => {
@@ -241,9 +250,7 @@ describe("DripHome", () => {
 
     const lanesSection = screen.getByRole("region", { name: "抽出レーン" });
     await waitFor(() => {
-      expect(
-        within(lanesSection).queryByRole("button", { name: /スワイプで完了/ }),
-      ).not.toBeInTheDocument();
+      expect(within(lanesSection).queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
       expect(within(lanesSection).queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
     });
     // レーン枠は固定 3 個で常時表示される（レーン 1〜3 の見出し）
@@ -315,10 +322,8 @@ describe("DripHome", () => {
     expect(
       within(lanesSection).getByRole("button", { name: "▶ タイマー開始" }),
     ).toBeInTheDocument();
-    // 完了スワイプと取消長押しはタイマー状態に関係なく常時表示
-    expect(
-      within(lanesSection).getByRole("button", { name: /スワイプで完了/ }),
-    ).toBeInTheDocument();
+    // 完了と取消はタイマー状態に関係なく常時表示
+    expect(within(lanesSection).getByRole("button", { name: "完了" })).toBeInTheDocument();
     expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeInTheDocument();
   });
 

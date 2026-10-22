@@ -10,9 +10,18 @@ import { playTimerEndSound } from "../utils/audioUnlock";
  * で `remaining` が再び正の値に戻ったら ref をリセットして次の終了でも鳴らす。
  *
  * `remaining` が `null`（タイマー未指定）の場合は何もしない（ref もリセット）。
+ *
+ * `options.muted` が true の間に 0 以下になった場合は、音を鳴らさずに triggered を true にする
+ * （＝鳴らし済み扱い。元に戻した後に鳴り出さない）。
  */
-export function useTimerEndAlert(remaining: number | null, key: string): void {
+export function useTimerEndAlert(
+  remaining: number | null,
+  key: string,
+  options?: { muted?: boolean },
+): void {
   const triggered = useRef(false);
+  const muted = options?.muted ?? false;
+
   useEffect(() => {
     if (remaining === null) {
       // タイマー解除 → 次に開始されたときに鳴るようリセット
@@ -22,11 +31,13 @@ export function useTimerEndAlert(remaining: number | null, key: string): void {
     if (remaining <= 0) {
       if (!triggered.current) {
         triggered.current = true;
-        playTimerEndSound(key);
+        if (!muted) {
+          playTimerEndSound(key);
+        }
       }
     } else {
       // 再設定でリスタートされた場合に備えてリセット
       triggered.current = false;
     }
-  }, [remaining, key]);
+  }, [remaining, key, muted]);
 }

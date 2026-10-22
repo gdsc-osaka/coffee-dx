@@ -26,7 +26,6 @@ export function BrewLane({
   onChangeState,
   onStart,
   isStarting,
-  isCompleting,
   isCancelling,
   isSettingTimer,
 }: {
@@ -38,7 +37,6 @@ export function BrewLane({
   onChangeState: (next: LaneIdleState) => void;
   onStart: () => void;
   isStarting: boolean;
-  isCompleting: boolean;
   isCancelling: boolean;
   isSettingTimer: boolean;
 }) {
@@ -58,6 +56,8 @@ export function BrewLane({
   }
   return (
     <LaneActive
+      // 同じレーンでバッチが入れ替わったら完了保留などの内部状態を持ち越さない
+      key={state.batchId}
       laneNumber={laneNumber}
       menuItemName={state.menuItemName}
       count={state.count}
@@ -65,7 +65,6 @@ export function BrewLane({
       targetDurationSec={state.targetDurationSec}
       timerStartedAt={state.timerStartedAt}
       eventId={eventId}
-      isCompleting={isCompleting}
       isCancelling={isCancelling}
       isSettingTimer={isSettingTimer}
     />

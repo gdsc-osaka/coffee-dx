@@ -75,4 +75,27 @@ describe("useTimerEndAlert", () => {
     rerender({ r: 0 });
     expect(playMock).toHaveBeenCalledTimes(2);
   });
+
+  it("muted が true の間に remaining が 0 以下になっても音は鳴らず、その後 muted=false にしても鳴らない", () => {
+    const { rerender } = renderHook(
+      ({ r, muted }: { r: number | null; muted?: boolean }) =>
+        useTimerEndAlert(r, "batch-1", { muted }),
+      {
+        initialProps: { r: 5, muted: true },
+      },
+    );
+    expect(playMock).not.toHaveBeenCalled();
+
+    // muted 中に 0 以下に到達
+    rerender({ r: 0, muted: true });
+    expect(playMock).not.toHaveBeenCalled();
+
+    // その後 muted を false に戻しても（既にトリガー済み扱いのため）鳴らない
+    rerender({ r: 0, muted: false });
+    expect(playMock).not.toHaveBeenCalled();
+
+    // マイナスになっても鳴らない
+    rerender({ r: -5, muted: false });
+    expect(playMock).not.toHaveBeenCalled();
+  });
 });

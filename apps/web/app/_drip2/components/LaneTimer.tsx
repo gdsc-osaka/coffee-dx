@@ -20,6 +20,7 @@ export function LaneTimer({
   targetDurationSec,
   timerStartedAt,
   isPersisting,
+  muted = false,
 }: {
   batchId: string;
   eventId: string;
@@ -27,6 +28,8 @@ export function LaneTimer({
   timerStartedAt: string | null;
   /** brew-set-timer を submit 中かどうか（このレーンに対する送信中は disabled） */
   isPersisting: boolean;
+  /** タイマー終了音を抑制するかどうか（保留中など） */
+  muted?: boolean;
 }) {
   const submit = useSubmit();
 
@@ -49,7 +52,7 @@ export function LaneTimer({
       : 0;
   const remaining = isRunning && targetDurationSec !== null ? targetDurationSec - elapsedSec : null;
   const isFinished = remaining !== null && remaining <= 0;
-  useTimerEndAlert(remaining, batchId);
+  useTimerEndAlert(remaining, batchId, { muted });
 
   // 終了したらドラフトを初期値に戻して再設定 UI を出しやすくする
   const finishedHandledRef = useRef(false);
