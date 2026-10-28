@@ -88,8 +88,16 @@ export class OrderDurableObject implements DurableObject {
   >();
   /** 次枠キュー（docs/design/drip-suggestion.md）。全端末で同じ内容を表示する */
   private queue: QueueEntry[] = [];
-  /** 対象メニュー ID。一度決めたら営業中は変えない。メニュー未登録の間は null */
+  /**
+   * 【変更】対象メニュー ID。営業中は追加のみ行い、既存の並び（= 同点時の登録順）は変えない。
+   * メニュー未登録の間は null
+   */
   private queueMenus: QueueMenus | null = null;
+  /**
+   * 【追加】DB で確認したが対象にならなかったメニュー ID（brew でない等）。
+   * 同じ ID で補充のたびに DB へ問い合わせないための、メモリ上のみの記録。
+   */
+  private readonly skippedQueueMenuIds = new Set<string>();
   private initialized = false;
   // この DO が紐づく eventId（= business_date）。Worker 境界で検証済みの値が x-event-id に乗ってくる前提で、
   // brew_units を書き込む際の真実源として使う。
@@ -1169,8 +1177,9 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   /**
-   * 対象メニューを決める。保存済みならそれを使い、なければ提供中の全メニューを
-   * 登録日時順（同時刻なら id 順）で取得して保存する。一度決まったら営業中は変えない。
+   * 【変更】初期の対象メニューを決める。保存済みならそれを使い、なければ提供中の全メニューを
+   * 登録日時順（同時刻なら id 順）で取得して保存する。
+   * 営業開始後に追加されたメニューは syncQueueMenusWithOrders が末尾に追加する。
    */
   private async ensureQueueMenus(): Promise<void> {
     if (this.queueMenus) return;
@@ -1194,6 +1203,50 @@ export class OrderDurableObject implements DurableObject {
   }
 
   /**
+   * 【追加】営業開始後に追加されたメニューを対象メニューへ取り込む。
+   * 注文に含まれる brew 品目のうち queueMenus にないメニュー ID を DB で確認し、
+   * brew のものだけを末尾に追加して保存する。既存の並び（= 同点時の登録順）は変えない。
+   * - 該当がなければ DB へは問い合わせない。
+   * - 確認したが対象にならなかった ID は skippedQueueMenuIds に覚え、再問い合わせしない。
+   * - await をまたいで別の同期と重なっても重複しないよう、反映時に最新の queueMenus と突き合わせる。
+   */
+  private async syncQueueMenusWithOrders(): Promise<void> {
+    const current = this.queueMenus;
+    if (!current) return; // メニュー未登録の間は ensureQueueMenus が毎回取得を試みる
+    const known = new Set(current);
+
+    const missingIds = new Set<string>();
+    for (const order of this.orders.values()) {
+      for (const item of order.items) {
+        if (item.fulfillmentTypeAtOrder === "direct") continue;
+        if (known.has(item.menuItemId) || this.skippedQueueMenuIds.has(item.menuItemId)) continue;
+        missingIds.add(item.menuItemId);
+      }
+    }
+    if (missingIds.size === 0) return;
+
+    const db = createDb(this.env.DB);
+    const rows = await db
+      .select({ id: menuItems.id })
+      .from(menuItems)
+      .where(and(inArray(menuItems.id, [...missingIds]), eq(menuItems.fulfillmentType, "brew")))
+      .orderBy(asc(menuItems.createdAt), asc(menuItems.id));
+
+    const foundIds = new Set(rows.map((row) => row.id));
+    for (const id of missingIds) {
+      if (!foundIds.has(id)) this.skippedQueueMenuIds.add(id);
+    }
+
+    const latest = this.queueMenus ?? current;
+    const latestKnown = new Set(latest);
+    const toAdd = rows.map((row) => row.id).filter((id) => !latestKnown.has(id));
+    if (toAdd.length === 0) return;
+
+    this.queueMenus = [...latest, ...toAdd];
+    await this.state.storage.put(QUEUE_MENUS_STORAGE_KEY, this.queueMenus);
+  }
+
+  /**
    * 補充して保存・送信する。before を渡すと、先にキューへ適用（消費・削減）してから補充する。
    * this.queue を読んでから代入するまでの間に await を挟まないこと（同時操作での取りこぼし防止）。
    */
@@ -1201,6 +1254,8 @@ export class OrderDurableObject implements DurableObject {
     before: (queue: QueueEntry[], menus: QueueMenus) => QueueEntry[] = (queue) => queue,
   ): Promise<void> {
     await this.ensureQueueMenus();
+    // 【追加】営業開始後に増えたメニューを対象に加える（通常注文・モバイルオーダーのどちらの経路でも効く）
+    await this.syncQueueMenusWithOrders();
     const menus = this.queueMenus;
     if (!menus) return;
 
