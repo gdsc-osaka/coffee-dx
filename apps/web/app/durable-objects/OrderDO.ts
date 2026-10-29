@@ -89,12 +89,12 @@ export class OrderDurableObject implements DurableObject {
   /** 次枠キュー（docs/design/drip-suggestion.md）。全端末で同じ内容を表示する */
   private queue: QueueEntry[] = [];
   /**
-   * 【変更】対象メニュー ID。営業中は追加のみ行い、既存の並び（= 同点時の登録順）は変えない。
+   * 対象メニュー ID。営業中は追加のみ行い、既存の並び（= 同点時の登録順）は変えない。
    * メニュー未登録の間は null
    */
   private queueMenus: QueueMenus | null = null;
   /**
-   * 【追加】DB で確認したが対象にならなかったメニュー ID（brew でない等）。
+   * DB で確認したが対象にならなかったメニュー ID（brew でない等）。
    * 同じ ID で補充のたびに DB へ問い合わせないための、メモリ上のみの記録。
    */
   private readonly skippedQueueMenuIds = new Set<string>();
@@ -1177,7 +1177,7 @@ export class OrderDurableObject implements DurableObject {
   // ---------------------------------------------------------------------------
 
   /**
-   * 【変更】初期の対象メニューを決める。保存済みならそれを使い、なければ提供中の全メニューを
+   * 初期の対象メニューを決める。保存済みならそれを使い、なければ提供中の全メニューを
    * 登録日時順（同時刻なら id 順）で取得して保存する。
    * 営業開始後に追加されたメニューは syncQueueMenusWithOrders が末尾に追加する。
    */
@@ -1203,7 +1203,7 @@ export class OrderDurableObject implements DurableObject {
   }
 
   /**
-   * 【追加】営業開始後に追加されたメニューを対象メニューへ取り込む。
+   * 営業開始後に追加されたメニューを対象メニューへ取り込む。
    * 注文に含まれる brew 品目のうち queueMenus にないメニュー ID を DB で確認し、
    * brew のものだけを末尾に追加して保存する。既存の並び（= 同点時の登録順）は変えない。
    * - 該当がなければ DB へは問い合わせない。
@@ -1254,7 +1254,7 @@ export class OrderDurableObject implements DurableObject {
     before: (queue: QueueEntry[], menus: QueueMenus) => QueueEntry[] = (queue) => queue,
   ): Promise<void> {
     await this.ensureQueueMenus();
-    // 【追加】営業開始後に増えたメニューを対象に加える（通常注文・モバイルオーダーのどちらの経路でも効く）
+    // 営業開始後に増えたメニューを対象に加える（通常注文・モバイルオーダーのどちらの経路でも効く）
     await this.syncQueueMenusWithOrders();
     const menus = this.queueMenus;
     if (!menus) return;
