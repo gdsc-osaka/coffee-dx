@@ -666,10 +666,6 @@ export default function DripHome({
                 {laneSlots.map((slot, idx) => {
                   const laneNumber = idx + 1;
                   const batchId = slot.kind === "active" ? slot.batchId : null;
-                  const isCompleting =
-                    batchId !== null &&
-                    submittingBatchId === batchId &&
-                    submittingIntent === "brew-complete";
                   const isCancelling =
                     batchId !== null &&
                     submittingBatchId === batchId &&
@@ -695,7 +691,6 @@ export default function DripHome({
                         onChangeState={(next) => updateLaneState(idx, next)}
                         onStart={() => handleStart(idx)}
                         isStarting={isStarting}
-                        isCompleting={isCompleting}
                         isCancelling={isCancelling}
                         isSettingTimer={isSettingTimer}
                       />
