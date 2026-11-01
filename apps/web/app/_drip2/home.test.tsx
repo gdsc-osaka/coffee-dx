@@ -190,10 +190,11 @@ describe("DripHome", () => {
     });
 
     expect(within(lanesSection).getByRole("button", { name: "取消" })).toBeInTheDocument();
-    // 固定 3 レーン枠が常に表示される
+    // 固定 4 レーン枠が常に表示される
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 4$/)).toBeInTheDocument();
   });
 
   it("ProductionDashboard に余剰削除ボタンが ready 余剰時のみ出る", async () => {
@@ -253,13 +254,14 @@ describe("DripHome", () => {
       expect(within(lanesSection).queryByRole("button", { name: "完了" })).not.toBeInTheDocument();
       expect(within(lanesSection).queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
     });
-    // レーン枠は固定 3 個で常時表示される（レーン 1〜3 の見出し）
+    // レーン枠は固定 4 個で常時表示される（レーン 1〜4 の見出し）
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
+    expect(within(lanesSection).getByText(/レーン 4$/)).toBeInTheDocument();
   });
 
-  it("初期表示で 3 つのレーン枠が出ており、メニュー選択前は「抽出開始」が disabled", async () => {
+  it("初期表示で 4 つのレーン枠が出ており、メニュー選択前は「抽出開始」が disabled", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
@@ -275,7 +277,10 @@ describe("DripHome", () => {
     expect(within(lanesSection).getByText(/レーン 1$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 2$/)).toBeInTheDocument();
     expect(within(lanesSection).getByText(/レーン 3$/)).toBeInTheDocument();
-    // 固定 3 レーンなので「+ 追加」「× 削除」UI は出ない
+    expect(within(lanesSection).getByText(/レーン 4$/)).toBeInTheDocument();
+    // 5 つ目のレーンは存在しない
+    expect(within(lanesSection).queryByText(/レーン 5$/)).not.toBeInTheDocument();
+    // 固定 4 レーンなので「+ 追加」「× 削除」UI は出ない
     expect(
       within(lanesSection).queryByRole("button", { name: /レーン追加/ }),
     ).not.toBeInTheDocument();
@@ -285,6 +290,7 @@ describe("DripHome", () => {
 
     // メニュー未選択 / タイマー 0 のときは抽出開始 disabled
     const startButtons = within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" });
+    expect(startButtons).toHaveLength(4);
     expect(startButtons[0]).toBeDisabled();
 
     // メニュー選択しただけではまだ disabled（タイマーが 0 なので）
@@ -353,6 +359,47 @@ describe("DripHome", () => {
     expect(within(lane1).getByRole("button", { name: "▶ 抽出開始" })).toBeInTheDocument();
   });
 
+  it("laneIndex=3 のバッチは 4 つ目のレーン（レーン 4）に表示される", async () => {
+    renderDrip();
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws.emitMessage({
+        type: "SNAPSHOT",
+        orders: [],
+        brewUnits: [buildBrewUnit({ id: "u1", status: "brewing", batchId: "b1", laneIndex: 3 })],
+      });
+    });
+
+    const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
+
+    const lane4Header = within(lanesSection).getByText(/レーン 4$/);
+    const lane4 = lane4Header.closest("div")!.parentElement!;
+    expect(within(lane4).getByText("抽出中")).toBeInTheDocument();
+
+    // 他のレーンは idle のまま
+    expect(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })).toHaveLength(3);
+  });
+
+  it("レーン範囲外（laneIndex=4）のバッチは表示されない", async () => {
+    renderDrip();
+    const ws = MockWebSocket.instances[0];
+
+    await act(async () => {
+      ws.emitMessage({
+        type: "SNAPSHOT",
+        orders: [],
+        brewUnits: [buildBrewUnit({ id: "u1", status: "brewing", batchId: "b1", laneIndex: 4 })],
+      });
+    });
+
+    const lanesSection = await waitFor(() => screen.getByRole("region", { name: "抽出レーン" }));
+
+    expect(within(lanesSection).queryByText("抽出中")).not.toBeInTheDocument();
+    // 4 レーンとも idle のまま
+    expect(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })).toHaveLength(4);
+  });
+
   it("抽出の提案に SNAPSHOT / QUEUE_UPDATED のキューが表示され、空き枠は「提案なし」になる", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
@@ -369,12 +416,13 @@ describe("DripHome", () => {
     const section = await waitFor(() => screen.getByRole("region", { name: "抽出の提案" }));
     expect(within(section).getByText("アメリカーノ")).toBeInTheDocument();
     expect(within(section).getByText("3杯")).toBeInTheDocument();
-    expect(within(section).getAllByText("提案なし")).toHaveLength(2);
+    // 提案枠は 4 つ。1 つ埋まっているので残り 3 つが「提案なし」
+    expect(within(section).getAllByText("提案なし")).toHaveLength(3);
 
     await act(async () => {
       ws.emitMessage({ type: "QUEUE_UPDATED", queue: [] });
     });
-    expect(within(section).getAllByText("提案なし")).toHaveLength(3);
+    expect(within(section).getAllByText("提案なし")).toHaveLength(4);
   });
 
   it("提供待ちには提供待ちの注文のみを出し、サーバー上で ready の注文だけに「完了」を出す", async () => {

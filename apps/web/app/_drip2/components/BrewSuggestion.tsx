@@ -1,7 +1,10 @@
 import type { QueueEntry } from "~/features/brew-queue/queue";
 
-/** キューの最大エントリー数（= レーン数）。空き枠もカードとして表示する */
-const SLOT_COUNT = 3;
+/**
+ * キューの最大エントリー数（= レーン数）。空き枠もカードとして表示する。
+ * queue.ts の MAX_QUEUE_LENGTH、home.tsx の LANE_COUNT と同じ値に揃えること。
+ */
+const SLOT_COUNT = 4;
 
 /**
  * 「抽出の提案」。OrderDO が管理する次枠キューを、レーンと同じ幅のカードで並べる。

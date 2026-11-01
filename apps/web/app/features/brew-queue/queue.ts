@@ -15,7 +15,7 @@ import { parseJstString } from "../../lib/datetime";
 /** 1 バッチ（1 台のドリッパー）の最大杯数 */
 export const MAX_CUPS_PER_BATCH = 3;
 /** キューの最大エントリー数（物理ドリッパー数） */
-export const MAX_QUEUE_LENGTH = 3;
+export const MAX_QUEUE_LENGTH = 4;
 /** 通常時の決め方で見る古い注文の件数 */
 export const OLD_ORDER_COUNT = 3;
 /** 平均抽出時間（3 分弱）の約 2 倍。最も古い注文がこれ以上待っていれば優先する */
