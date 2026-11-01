@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  allocateOrderNumbers,
-  type AllocationBrewUnit,
-  type AllocationOrder,
-} from "./allocation";
+import { allocateOrderNumbers, type AllocationBrewUnit, type AllocationOrder } from "./allocation";
 import type { QueueEntry } from "./queue";
 
 const A = "menu-a";
@@ -112,7 +108,11 @@ describe("allocateOrderNumbers", () => {
 
   it("紐付き済みの完成品と未紐付きの完成品を先に差し引く", () => {
     seq = 0;
-    const orders = [order("10:00:00", [2, 0]), order("10:01:00", [1, 0]), order("10:02:00", [1, 0])];
+    const orders = [
+      order("10:00:00", [2, 0]),
+      order("10:01:00", [1, 0]),
+      order("10:02:00", [1, 0]),
+    ];
     const result = allocateOrderNumbers({
       orders,
       brewUnits: [

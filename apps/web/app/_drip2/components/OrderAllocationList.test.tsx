@@ -20,7 +20,9 @@ describe("OrderAllocationList", () => {
   });
 
   it("余りが 0 杯なら余りは表示しない", () => {
-    render(<OrderAllocationList allocation={{ orders: [{ orderNumber: 3, count: 1 }], surplus: 0 }} />);
+    render(
+      <OrderAllocationList allocation={{ orders: [{ orderNumber: 3, count: 1 }], surplus: 0 }} />,
+    );
     expect(screen.queryByText(/余り/)).not.toBeInTheDocument();
   });
 
