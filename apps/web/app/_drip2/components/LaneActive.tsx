@@ -13,6 +13,8 @@ import { parseJst } from "../utils/parseJst";
 import { stopTimerEndSound } from "../utils/audioUnlock";
 import { SwipeToConfirm } from "./SwipeToConfirm";
 import { LaneTimer } from "./LaneTimer";
+import { OrderAllocationList } from "./OrderAllocationList";
+import type { BatchAllocation } from "~/features/brew-queue/allocation";
 
 /**
  * 抽出中レーン。完了スワイプ・取消長押しはタイマー状態と独立に常時表示。
@@ -29,6 +31,7 @@ export function LaneActive({
   isCompleting,
   isCancelling,
   isSettingTimer,
+  allocation,
 }: {
   laneNumber: number;
   menuItemName: string;
@@ -40,6 +43,8 @@ export function LaneActive({
   isCompleting: boolean;
   isCancelling: boolean;
   isSettingTimer: boolean;
+  /** このバッチがどの注文の分か（予測） */
+  allocation?: BatchAllocation;
 }) {
   const submit = useSubmit();
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -97,6 +102,8 @@ export function LaneActive({
           抽出中
         </span>
       </div>
+
+      <OrderAllocationList allocation={allocation} />
 
       {TIMER_FEATURE_ENABLED && (
         <LaneTimer

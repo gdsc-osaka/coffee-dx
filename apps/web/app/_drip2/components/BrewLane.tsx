@@ -1,6 +1,7 @@
 import type { LaneIdleState } from "./LaneIdle";
 import { LaneIdle } from "./LaneIdle";
 import { LaneActive } from "./LaneActive";
+import type { BatchAllocation } from "~/features/brew-queue/allocation";
 
 export type LaneActiveDescriptor = {
   kind: "active";
@@ -29,6 +30,7 @@ export function BrewLane({
   isCompleting,
   isCancelling,
   isSettingTimer,
+  allocation,
 }: {
   laneNumber: number;
   laneIndex: number;
@@ -41,6 +43,8 @@ export function BrewLane({
   isCompleting: boolean;
   isCancelling: boolean;
   isSettingTimer: boolean;
+  /** 抽出中バッチがどの注文の分か（予測）。idle のときは無視される */
+  allocation?: BatchAllocation;
 }) {
   if (state.kind === "idle") {
     return (
@@ -68,6 +72,7 @@ export function BrewLane({
       isCompleting={isCompleting}
       isCancelling={isCancelling}
       isSettingTimer={isSettingTimer}
+      allocation={allocation}
     />
   );
 }

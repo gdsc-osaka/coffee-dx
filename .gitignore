@@ -12,3 +12,6 @@ backend.hcl
 *.wrangler/
 .pnpm-store/
 apps/web/.dev.vars
+
+# Secrets
+.env

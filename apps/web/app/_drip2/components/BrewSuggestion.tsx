@@ -1,4 +1,6 @@
 import type { QueueEntry } from "~/features/brew-queue/queue";
+import type { BatchAllocation } from "~/features/brew-queue/allocation";
+import { OrderAllocationList } from "./OrderAllocationList";
 
 /** キューの最大エントリー数（= レーン数）。空き枠もカードとして表示する */
 const SLOT_COUNT = 3;
@@ -10,9 +12,12 @@ const SLOT_COUNT = 3;
 export function BrewSuggestion({
   queue,
   menuNameOf,
+  allocations,
 }: {
   queue: QueueEntry[];
   menuNameOf: (menuItemId: string) => string;
+  /** 提案 ID → どの注文の分か（予測） */
+  allocations: Record<string, BatchAllocation>;
 }) {
   return (
     <section aria-label="抽出の提案" className="px-4 sm:px-8 pb-6 sm:pb-8 overflow-x-auto">
@@ -29,6 +34,7 @@ export function BrewSuggestion({
                 {menuNameOf(entry.menuItemId)}
               </span>
               <span className="text-lg font-bold text-stone-600 tabular-nums">{entry.count}杯</span>
+              <OrderAllocationList allocation={allocations[entry.id]} />
             </li>
           ) : (
             <li
