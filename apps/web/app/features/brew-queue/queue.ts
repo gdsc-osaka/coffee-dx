@@ -1,7 +1,8 @@
 import { parseJstString } from "../../lib/datetime";
 
 /**
- * 次枠キュー（次に 3 台のドリッパーへセットすべきバッチ群）の計算。
+ * 次枠キュー（次にドリッパーへセットすべきバッチ群）の計算。
+ * 未対応の杯はすべて、いずれかのエントリーに割り当てる（キューの長さに上限は設けない）。
  * 設計: docs/design/drip-suggestion.md
  *
  * OrderDO から次の順で呼び出す想定。brewUnits は各イベント反映後の状態を渡すこと。
@@ -14,8 +15,6 @@ import { parseJstString } from "../../lib/datetime";
 
 /** 1 バッチ（1 台のドリッパー）の最大杯数 */
 export const MAX_CUPS_PER_BATCH = 3;
-/** キューの最大エントリー数（物理ドリッパー数） */
-export const MAX_QUEUE_LENGTH = 4;
 /** 通常時の決め方で見る古い注文の件数 */
 export const OLD_ORDER_COUNT = 3;
 /** 平均抽出時間（3 分弱）の約 2 倍。最も古い注文がこれ以上待っていれば優先する */
@@ -165,7 +164,8 @@ function chooseNormalMenu(pendingOrders: PendingOrder[], menus: QueueMenus): str
 
 /**
  * 補充。既存エントリーの種類と並びは変えず、3 杯未満のエントリーへの追加と、
- * 空き枠への新しいエントリーの追加のみを行う。
+ * 未対応の杯が残っている間の新しいエントリーの追加のみを行う。
+ * maxEntries を省略すると、未対応の杯がすべてエントリーに割り当てられるまで追加する。
  */
 export function refillQueue({
   queue,
@@ -174,6 +174,7 @@ export function refillQueue({
   menus,
   now,
   newId = () => crypto.randomUUID(),
+  maxEntries,
 }: {
   queue: QueueEntry[];
   orders: QueueOrder[];
@@ -182,6 +183,11 @@ export function refillQueue({
   /** 判定に使う現在時刻（ミリ秒）。サーバーの時刻を渡す */
   now: number;
   newId?: () => string;
+  /**
+   * キューの最大エントリー数。本番では指定しない（上限なし）。
+   * 「どの種類を先に選ぶか」の決め方を確かめるテストで、枠数を絞るために使う。
+   */
+  maxEntries?: number;
 }): QueueEntry[] {
   const current = queue.map((e) => ({ ...e }));
 
@@ -195,7 +201,7 @@ export function refillQueue({
     );
   }
 
-  const emptySlots = MAX_QUEUE_LENGTH - current.length;
+  const emptySlots = (maxEntries ?? Number.POSITIVE_INFINITY) - current.length;
   if (emptySlots <= 0) return current;
 
   const added: Array<{ entry: QueueEntry; representative: QueueOrder }> = [];
@@ -216,7 +222,8 @@ export function refillQueue({
     addBatch(choosePriorityMenu(first, menus), first);
   }
 
-  // 残りの空き枠は通常時の決め方で 1 枠ずつ決める
+  // 残りは通常時の決め方で 1 バッチずつ決める。
+  // 1 バッチ追加するたびに、その杯が未対応から差し引かれるので、未対応がなくなれば終わる。
   while (added.length < emptySlots) {
     const pendingOrders = pendingWithAdded();
     if (pendingOrders.length === 0) break;

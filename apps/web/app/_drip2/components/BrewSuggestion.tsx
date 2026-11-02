@@ -1,13 +1,9 @@
 import type { QueueEntry } from "~/features/brew-queue/queue";
 
 /**
- * キューの最大エントリー数（= レーン数）。空き枠もカードとして表示する。
- * queue.ts の MAX_QUEUE_LENGTH、home.tsx の LANE_COUNT と同じ値に揃えること。
- */
-const SLOT_COUNT = 4;
-
-/**
- * 「抽出の提案」。OrderDO が管理する次枠キューを、レーンと同じ幅のカードで並べる。
+ * 「抽出の提案」。OrderDO が管理する次枠キューを、レーンと同じ幅のカードで横に並べる。
+ * キューには未対応の杯がすべて割り当てられているので、カードの数は固定しない
+ * （多いときは横スクロールで確認する）。
  * 各端末はサーバーから受け取ったキューを表示するだけで、計算はしない。
  */
 export function BrewSuggestion({
@@ -21,9 +17,12 @@ export function BrewSuggestion({
     <section aria-label="抽出の提案" className="px-4 sm:px-8 pb-6 sm:pb-8 overflow-x-auto">
       <h2 className="text-lg font-bold text-stone-700 mb-3">抽出の提案</h2>
       <ul className="flex flex-row gap-4 sm:gap-6">
-        {Array.from({ length: SLOT_COUNT }, (_, idx) => {
-          const entry = queue[idx];
-          return entry ? (
+        {queue.length === 0 ? (
+          <li className="w-[22rem] sm:w-[26rem] shrink-0 border-2 border-dashed border-stone-200 rounded-3xl p-5 sm:p-6 flex items-center justify-center text-sm text-stone-400">
+            提案なし
+          </li>
+        ) : (
+          queue.map((entry) => (
             <li
               key={entry.id}
               className="w-[22rem] sm:w-[26rem] shrink-0 bg-white border-2 border-stone-200 rounded-3xl p-5 sm:p-6 flex flex-col gap-3 shadow-sm"
@@ -33,15 +32,8 @@ export function BrewSuggestion({
               </span>
               <span className="text-lg font-bold text-stone-600 tabular-nums">{entry.count}杯</span>
             </li>
-          ) : (
-            <li
-              key={`empty-${idx}`}
-              className="w-[22rem] sm:w-[26rem] shrink-0 border-2 border-dashed border-stone-200 rounded-3xl p-5 sm:p-6 flex items-center justify-center text-sm text-stone-400"
-            >
-              提案なし
-            </li>
-          );
-        })}
+          ))
+        )}
       </ul>
     </section>
   );

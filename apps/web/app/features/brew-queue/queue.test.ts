@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseJstString } from "../../lib/datetime";
 import {
-  MAX_QUEUE_LENGTH,
   computePendingOrders,
   consumeQueue,
   refillQueue,
@@ -55,13 +54,31 @@ function show(queue: QueueEntry[]): string {
   return queue.map((e) => `${labels.get(e.menuItemId) ?? e.menuItemId}${e.count}`).join(" ");
 }
 
-function refill(orders: QueueOrder[], queue: QueueEntry[] = [], brewUnits: QueueBrewUnit[] = []) {
+/** maxEntries を省略すると上限なし（本番と同じ）。 */
+function refill(
+  orders: QueueOrder[],
+  queue: QueueEntry[] = [],
+  brewUnits: QueueBrewUnit[] = [],
+  maxEntries?: number,
+) {
   let n = 0;
-  return refillQueue({ queue, orders, brewUnits, menus, now: NOW, newId: () => `new-${++n}` });
+  return refillQueue({
+    queue,
+    orders,
+    brewUnits,
+    menus,
+    now: NOW,
+    newId: () => `new-${++n}`,
+    maxEntries,
+  });
 }
 
-/** 空き枠を 1 つだけ残すために、あらかじめ埋めておく枠の数 */
-const FILLED_SLOTS = MAX_QUEUE_LENGTH - 1;
+/**
+ * 「どの種類を先に選ぶか」の決め方を確かめるために、枠数を 3 つに絞る。
+ * 本番では枠数を絞らない（上限なしの動作は、別の describe で確かめる）。
+ */
+const SLOTS = 3;
+const FILLED_SLOTS = SLOTS - 1;
 
 /**
  * 空き枠を 1 つだけにするためのダミー。10:00 の注文（A 3 杯）を 1 件ずつ、
@@ -78,14 +95,8 @@ function filler() {
 /** 空き枠が 1 つだけの状態で補充し、新しく追加された分だけを返す */
 function withOneEmptySlot(orders: QueueOrder[]) {
   const f = filler();
-  return refill([...f.orders, ...orders], f.queue).slice(FILLED_SLOTS);
+  return refill([...f.orders, ...orders], f.queue, [], SLOTS).slice(FILLED_SLOTS);
 }
-
-describe("キューの枠数", () => {
-  it("ドリッパー 4 台に合わせて、最大 4 エントリー（home.tsx の LANE_COUNT と同じ値）", () => {
-    expect(MAX_QUEUE_LENGTH).toBe(4);
-  });
-});
 
 describe("computePendingOrders", () => {
   it("direct items are excluded from the brew queue", () => {
@@ -164,6 +175,7 @@ describe("refillQueue: 通常時の決め方", () => {
       menus: [A, B, C],
       now: NOW,
       newId: () => `new-${++seq}`,
+      maxEntries: SLOTS,
     });
     // A・B が 2 杯で同率。登録順の A ではなく、先に注文された B を選ぶ。
     expect(show(result.slice(FILLED_SLOTS))).toBe("B2");
@@ -216,15 +228,36 @@ describe("refillQueue: 通常時の決め方", () => {
     expect(show(refill(orders))).toBe("B1 A3");
   });
 
-  it("満杯のバッチを最大枠数まで作り、超える分は次の補充に回す", () => {
-    // A を 1 杯分だけ枠数に収まらない量にして、B は次の補充に回ることも確かめる
-    const cups = MAX_QUEUE_LENGTH * 3 + 1;
-    const expected = Array.from({ length: MAX_QUEUE_LENGTH }, () => "A3").join(" ");
-    expect(show(refill([order("10:28:00", [cups, 1])]))).toBe(expected);
+  it("枠数を指定したときは、収まらない分を次の補充に回す", () => {
+    expect(show(refill([order("10:28:00", [9, 1])], [], [], SLOTS))).toBe("A3 A3 A3");
   });
 
   it("未対応の杯がなければ追加しない", () => {
     expect(refill([])).toEqual([]);
+  });
+});
+
+describe("refillQueue: 上限なし（未対応の杯をすべて割り当てる）", () => {
+  it("枠数を指定しなければ、未対応の杯がすべてエントリーに入る", () => {
+    expect(show(refill([order("10:28:00", [9, 1])]))).toBe("A3 A3 A3 B1");
+  });
+
+  it("3 杯に満たない端数も 1 つのエントリーになる", () => {
+    expect(show(refill([order("10:28:00", [10, 0])]))).toBe("A3 A3 A3 A1");
+  });
+
+  it("割り当て済みの状態でもう一度補充しても、キューは変わらない", () => {
+    const orders = [order("10:28:00", [9, 1])];
+    const first = refill(orders);
+    expect(refill(orders, first)).toEqual(first);
+  });
+
+  it("新しい注文の分は、すでに満杯のエントリーの後ろに追加される", () => {
+    const o1 = order("10:20:00", [6, 0]);
+    const o2 = order("10:28:00", [0, 2]);
+    const result = refill([o1, o2], [entry("x", A, 3), entry("y", A, 3)]);
+    expect(show(result)).toBe("A3 A3 B2");
+    expect(result.map((e) => e.id)).toEqual(["x", "y", "new-1"]);
   });
 });
 
