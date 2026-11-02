@@ -2,7 +2,8 @@ import { parseJstString } from "../../lib/datetime";
 
 /**
  * 次枠キュー（次にドリッパーへセットすべきバッチ群）の計算。
- * 未対応の杯はすべて、いずれかのエントリーに割り当てる（キューの長さに上限は設けない）。
+ * 確定するのは先頭の CONFIRMED_QUEUE_LENGTH 件（refillQueue）。保存・消費の対象はこの確定キューのみ。
+ * 確定キューに入りきらない未対応の杯は、見込み（previewQueue）として表示のたびに計算し直す。
  * 設計: docs/design/drip-suggestion.md
  *
  * OrderDO から次の順で呼び出す想定。brewUnits は各イベント反映後の状態を渡すこと。
@@ -15,6 +16,11 @@ import { parseJstString } from "../../lib/datetime";
 
 /** 1 バッチ（1 台のドリッパー）の最大杯数 */
 export const MAX_CUPS_PER_BATCH = 3;
+/**
+ * 確定するエントリー数（物理ドリッパー数）。枠が空いたときに、その時点の状況（長時間待ちの優先・
+ * 古い注文の未対応杯数）で次のバッチを決めるため、全件をまとめて確定させない。
+ */
+export const CONFIRMED_QUEUE_LENGTH = 4;
 /** 通常時の決め方で見る古い注文の件数 */
 export const OLD_ORDER_COUNT = 3;
 /** 平均抽出時間（3 分弱）の約 2 倍。最も古い注文がこれ以上待っていれば優先する */
@@ -170,14 +176,20 @@ function representativesOf(queue: QueueEntry[], base: PendingOrder[]): Array<Que
  * 比較には差し込む前の代表注文を使う。同じ種類のエントリーの前に入ると割り当てが入れ替わるだけなので、
  * 差し込んだ後の値で比べると、新しい注文の分が同じ種類の既存エントリーを追い越してしまう。
  */
-function insertByAge(queue: QueueEntry[], entry: QueueEntry, base: PendingOrder[]): QueueEntry[] {
+function insertByAge(
+  queue: QueueEntry[],
+  entry: QueueEntry,
+  base: PendingOrder[],
+  /** これより前には差し込まない位置（見込みを確定キューの前に入れないため） */
+  from: number,
+): QueueEntry[] {
   const existing = representativesOf(queue, base);
   let ahead = 0;
   for (let i = 0; i < queue.length; i++) {
     const mine = orderAt(base, entry.menuItemId, ahead);
     if (!mine) break;
     const theirs = existing[i];
-    if (!theirs || compareOrders(mine, theirs) < 0) {
+    if (i >= from && (!theirs || compareOrders(mine, theirs) < 0)) {
       return [...queue.slice(0, i), entry, ...queue.slice(i)];
     }
     if (queue[i].menuItemId === entry.menuItemId) ahead += queue[i].count;
@@ -207,20 +219,7 @@ function chooseNormalMenu(pendingOrders: PendingOrder[], menus: QueueMenus): str
   return chooseByScore(tied, menus, (id) => pendingOf(oldestWithCandidate, id));
 }
 
-/**
- * 補充。既存エントリーの種類と並びは変えず、3 杯未満のエントリーへの追加と、
- * 未対応の杯が残っている間の新しいエントリーの追加（代表注文の古さに応じた位置へ差し込む）のみを行う。
- * maxEntries を省略すると、未対応の杯がすべてエントリーに割り当てられるまで追加する。
- */
-export function refillQueue({
-  queue,
-  orders,
-  brewUnits,
-  menus,
-  now,
-  newId = () => crypto.randomUUID(),
-  maxEntries,
-}: {
+type FillParams = {
   queue: QueueEntry[];
   orders: QueueOrder[];
   brewUnits: QueueBrewUnit[];
@@ -228,16 +227,42 @@ export function refillQueue({
   /** 判定に使う現在時刻（ミリ秒）。サーバーの時刻を渡す */
   now: number;
   newId?: () => string;
-  /**
-   * キューの最大エントリー数。本番では指定しない（上限なし）。
-   * 「どの種類を先に選ぶか」の決め方を確かめるテストで、枠数を絞るために使う。
-   */
-  maxEntries?: number;
-}): QueueEntry[] {
+};
+
+/**
+ * 補充。既存エントリーの種類と並びは変えず、3 杯未満のエントリーへの追加と、
+ * 空き枠への新しいエントリーの追加（代表注文の古さに応じた位置へ差し込む）のみを行う。
+ * 返すのは確定キュー（最大 CONFIRMED_QUEUE_LENGTH 件）。
+ */
+export function refillQueue(params: FillParams): QueueEntry[] {
+  return fill(params, { maxEntries: CONFIRMED_QUEUE_LENGTH, topUp: true, insertFrom: 0 });
+}
+
+/**
+ * 見込み。確定キュー（refillQueue の結果）に入りきらない未対応の杯を、同じ決め方で後ろに並べたもの。
+ * 保存せず、補充のたびに計算し直す。確定キューに空きができたときは、見込みの先頭をそのまま
+ * 確定させるのではなく、その時点の状況で refillQueue が改めて決める。
+ * id は表示用で、並び順から決める（同じ状況なら同じ値になるので、変化がなければ送信を省ける）。
+ */
+export function previewQueue(params: Omit<FillParams, "newId">): QueueEntry[] {
+  const confirmed = params.queue;
+  return fill(params, {
+    maxEntries: Number.POSITIVE_INFINITY,
+    topUp: false,
+    insertFrom: confirmed.length,
+  })
+    .slice(confirmed.length)
+    .map((e, i) => ({ ...e, id: `preview-${i + 1}` }));
+}
+
+function fill(
+  { queue, orders, brewUnits, menus, now, newId = () => crypto.randomUUID() }: FillParams,
+  { maxEntries, topUp, insertFrom }: { maxEntries: number; topUp: boolean; insertFrom: number },
+): QueueEntry[] {
   const current = queue.map((e) => ({ ...e }));
 
   // 3 杯未満の既存エントリーに、同じ種類の未対応の杯を前のエントリーから加える
-  for (const entry of current) {
+  for (const entry of topUp ? current : []) {
     if (entry.count >= MAX_CUPS_PER_BATCH) continue;
     const pendingOrders = computePendingOrders(orders, brewUnits, current, menus);
     entry.count += Math.min(
@@ -246,7 +271,7 @@ export function refillQueue({
     );
   }
 
-  const emptySlots = (maxEntries ?? Number.POSITIVE_INFINITY) - current.length;
+  const emptySlots = maxEntries - current.length;
   if (emptySlots <= 0) return current;
 
   const added: Array<{ entry: QueueEntry; representative: QueueOrder }> = [];
@@ -267,8 +292,8 @@ export function refillQueue({
     addBatch(choosePriorityMenu(first, menus), first);
   }
 
-  // 残りは通常時の決め方で 1 バッチずつ決める。
-  // 1 バッチ追加するたびに、その杯が未対応から差し引かれるので、未対応がなくなれば終わる。
+  // 残りの空き枠は通常時の決め方で 1 枠ずつ決める。
+  // 1 枠決めるたびに、その杯が未対応から差し引かれるので、未対応がなくなれば終わる。
   while (added.length < emptySlots) {
     const pendingOrders = pendingWithAdded();
     if (pendingOrders.length === 0) break;
@@ -279,7 +304,7 @@ export function refillQueue({
   // 新しい注文の分は既存エントリーより新しいので、これまでどおり末尾に付く。
   added.sort((x, y) => compareOrders(x.representative, y.representative));
   const base = computePendingOrders(orders, brewUnits, [], menus);
-  return added.reduce((q, a) => insertByAge(q, a.entry, base), current);
+  return added.reduce((q, a) => insertByAge(q, a.entry, base, insertFrom), current);
 }
 
 /**

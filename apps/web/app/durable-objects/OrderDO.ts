@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { brewUnits, menuItems, orderItems, orders } from "../../db/schema";
 import {
   consumeQueue,
+  previewQueue,
   refillQueue,
   trimQueueAfterOrderCancel,
   type QueueEntry,
@@ -86,8 +87,10 @@ export class OrderDurableObject implements DurableObject {
     WebSocket,
     { deadline: number; timer: ReturnType<typeof setTimeout> }
   >();
-  /** 次枠キュー（docs/design/drip-suggestion.md）。全端末で同じ内容を表示する */
+  /** 確定した次枠キュー（docs/design/drip-suggestion.md）。保存・消費の対象はこれのみ */
   private queue: QueueEntry[] = [];
+  /** 端末へ送る表示用キュー（確定キュー + 見込み）。全端末で同じ内容を表示する */
+  private displayedQueue: QueueEntry[] = [];
   /**
    * 対象メニュー ID。営業中は追加のみ行い、既存の並び（= 同点時の登録順）は変えない。
    * メニュー未登録の間は null
@@ -328,6 +331,7 @@ export class OrderDurableObject implements DurableObject {
         // --- 次枠キュー ---
         this.queue = (await this.state.storage.get<QueueEntry[]>(QUEUE_STORAGE_KEY)) ?? [];
         await this.ensureQueueMenus();
+        this.displayedQueue = this.withPreview(this.queue, Date.now());
 
         this.initialized = true;
       });
@@ -366,7 +370,7 @@ export class OrderDurableObject implements DurableObject {
         type: "SNAPSHOT",
         orders: snapshotOrders,
         brewUnits: snapshotBrewUnits,
-        queue: this.queue,
+        queue: this.displayedQueue,
       } satisfies ServerMessage),
     );
 
@@ -1259,18 +1263,37 @@ export class OrderDurableObject implements DurableObject {
     const menus = this.queueMenus;
     if (!menus) return;
 
+    const now = Date.now();
     const next = refillQueue({
       queue: before(this.queue, menus),
       orders: [...this.orders.values()],
       brewUnits: [...this.brewUnits.values()],
       menus,
-      now: Date.now(),
+      now,
     });
+    // 確定キューが同じでも、新しい注文などで見込みは変わりうるので、表示用キューで比べる
+    const displayed = this.withPreview(next, now);
 
-    if (JSON.stringify(next) === JSON.stringify(this.queue)) return;
-    await this.state.storage.put(QUEUE_STORAGE_KEY, next);
-    this.queue = next;
-    this.broadcast({ type: "QUEUE_UPDATED", queue: next });
+    if (JSON.stringify(next) !== JSON.stringify(this.queue)) {
+      await this.state.storage.put(QUEUE_STORAGE_KEY, next);
+      this.queue = next;
+    }
+    if (JSON.stringify(displayed) === JSON.stringify(this.displayedQueue)) return;
+    this.displayedQueue = displayed;
+    this.broadcast({ type: "QUEUE_UPDATED", queue: displayed });
+  }
+
+  /** 確定キューの後ろに見込みを付けた表示用キュー。対象メニューが未確定なら確定キューのみ */
+  private withPreview(confirmed: QueueEntry[], now: number): QueueEntry[] {
+    if (!this.queueMenus) return confirmed;
+    const preview = previewQueue({
+      queue: confirmed,
+      orders: [...this.orders.values()],
+      brewUnits: [...this.brewUnits.values()],
+      menus: this.queueMenus,
+      now,
+    });
+    return [...confirmed, ...preview];
   }
 
   private broadcast(message: ServerMessage): void {

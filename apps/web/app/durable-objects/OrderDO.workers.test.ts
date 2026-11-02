@@ -459,6 +459,8 @@ describe("OrderDO", () => {
     ws.accept();
     const snapshot = await trace("receive SNAPSHOT", queue.next);
     expect(snapshot.type).toBe("SNAPSHOT");
+    // 注文を DB に直接入れたので、確定キューは空。未対応の brew 1 杯は見込みとして表示される（direct は含まない）
+    expect(snapshot.queue).toEqual([{ id: "preview-1", menuItemId: "m1", count: 1 }]);
 
     // バッチ生成 (2 杯)
     const createResponse = await trace("create brew batch", () =>
@@ -474,6 +476,9 @@ describe("OrderDO", () => {
     const created = await trace("receive BREW_UNITS_CREATED", queue.next);
     expect(created.type).toBe("BREW_UNITS_CREATED");
     const batchId = created.brewUnits[0].batchId;
+    // 抽出中の杯が未対応の 1 杯をまかなうので、見込みが消える
+    const queueUpdated = await trace("receive QUEUE_UPDATED", queue.next);
+    expect(queueUpdated).toEqual({ type: "QUEUE_UPDATED", queue: [] });
 
     // バッチ完了
     const res = await trace("complete brew batch", () =>

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseJstString } from "../../lib/datetime";
 import {
+  CONFIRMED_QUEUE_LENGTH,
   computePendingOrders,
   consumeQueue,
+  previewQueue,
   refillQueue,
   trimQueueAfterOrderCancel,
   type QueueBrewUnit,
@@ -54,31 +56,23 @@ function show(queue: QueueEntry[]): string {
   return queue.map((e) => `${labels.get(e.menuItemId) ?? e.menuItemId}${e.count}`).join(" ");
 }
 
-/** maxEntries を省略すると上限なし（本番と同じ）。 */
+/** 確定キューを補充する（最大 CONFIRMED_QUEUE_LENGTH 件） */
 function refill(
   orders: QueueOrder[],
   queue: QueueEntry[] = [],
   brewUnits: QueueBrewUnit[] = [],
-  maxEntries?: number,
+  now = NOW,
 ) {
   let n = 0;
-  return refillQueue({
-    queue,
-    orders,
-    brewUnits,
-    menus,
-    now: NOW,
-    newId: () => `new-${++n}`,
-    maxEntries,
-  });
+  return refillQueue({ queue, orders, brewUnits, menus, now, newId: () => `new-${++n}` });
 }
 
-/**
- * 「どの種類を先に選ぶか」の決め方を確かめるために、枠数を 3 つに絞る。
- * 本番では枠数を絞らない（上限なしの動作は、別の describe で確かめる）。
- */
-const SLOTS = 3;
-const FILLED_SLOTS = SLOTS - 1;
+/** 確定キューに入りきらない分の見込み */
+function preview(orders: QueueOrder[], queue: QueueEntry[], brewUnits: QueueBrewUnit[] = []) {
+  return previewQueue({ queue, orders, brewUnits, menus, now: NOW });
+}
+
+const FILLED_SLOTS = CONFIRMED_QUEUE_LENGTH - 1;
 
 /**
  * 空き枠を 1 つだけにするためのダミー。10:00 の注文（A 3 杯）を 1 件ずつ、
@@ -95,7 +89,7 @@ function filler() {
 /** 空き枠が 1 つだけの状態で補充し、新しく追加された分だけを返す */
 function withOneEmptySlot(orders: QueueOrder[]) {
   const f = filler();
-  return refill([...f.orders, ...orders], f.queue, [], SLOTS).slice(FILLED_SLOTS);
+  return refill([...f.orders, ...orders], f.queue).slice(FILLED_SLOTS);
 }
 
 describe("computePendingOrders", () => {
@@ -175,7 +169,6 @@ describe("refillQueue: 通常時の決め方", () => {
       menus: [A, B, C],
       now: NOW,
       newId: () => `new-${++seq}`,
-      maxEntries: SLOTS,
     });
     // A・B が 2 杯で同率。登録順の A ではなく、先に注文された B を選ぶ。
     expect(show(result.slice(FILLED_SLOTS))).toBe("B2");
@@ -228,8 +221,8 @@ describe("refillQueue: 通常時の決め方", () => {
     expect(show(refill(orders))).toBe("B1 A3");
   });
 
-  it("枠数を指定したときは、収まらない分を次の補充に回す", () => {
-    expect(show(refill([order("10:28:00", [9, 1])], [], [], SLOTS))).toBe("A3 A3 A3");
+  it("確定キューに収まらない分は、次の補充に回す", () => {
+    expect(show(refill([order("10:28:00", [13, 1])]))).toBe("A3 A3 A3 A3");
   });
 
   it("未対応の杯がなければ追加しない", () => {
@@ -237,15 +230,69 @@ describe("refillQueue: 通常時の決め方", () => {
   });
 });
 
-describe("refillQueue: 上限なし（未対応の杯をすべて割り当てる）", () => {
-  it("枠数を指定しなければ、未対応の杯がすべてエントリーに入る", () => {
-    expect(show(refill([order("10:28:00", [9, 1])]))).toBe("A3 A3 A3 B1");
+describe("previewQueue: 確定キューに入りきらない分の見込み", () => {
+  it("確定は 4 件まで。入りきらない杯はすべて見込みに入る", () => {
+    const orders = [order("10:28:00", [15, 1])];
+    const confirmed = refill(orders);
+    expect(show(confirmed)).toBe("A3 A3 A3 A3");
+    expect(show(preview(orders, confirmed))).toBe("A3 B1");
   });
 
   it("3 杯に満たない端数も 1 つのエントリーになる", () => {
-    expect(show(refill([order("10:28:00", [10, 0])]))).toBe("A3 A3 A3 A1");
+    const orders = [order("10:28:00", [13, 0])];
+    expect(show(preview(orders, refill(orders)))).toBe("A1");
   });
 
+  it("未対応の杯がなければ空", () => {
+    const orders = [order("10:28:00", [3, 0])];
+    expect(preview(orders, refill(orders))).toEqual([]);
+  });
+
+  it("id は並び順から決まり、同じ状況なら同じ値になる", () => {
+    const orders = [order("10:28:00", [15, 1])];
+    const confirmed = refill(orders);
+    const first = preview(orders, confirmed);
+    expect(first.map((e) => e.id)).toEqual(["preview-1", "preview-2"]);
+    expect(preview(orders, confirmed)).toEqual(first);
+  });
+
+  it("確定キューが満杯のあいだに来た注文は確定せず、枠が空いた時点の状況で決める", () => {
+    const f = Array.from({ length: CONFIRMED_QUEUE_LENGTH }, (_, i) =>
+      order(`10:00:0${i}`, [3, 0]),
+    );
+    const confirmed = f.map((_, i) => entry(`filler-${i}`, A, 3));
+    const later = [order("10:24:00", [0, 1]), order("10:27:00", [2, 0]), order("10:28:00", [1, 0])];
+    const orders = [...f, ...later];
+
+    // 満杯のあいだは確定キューは変わらず、新しい注文の分は見込みに入る
+    expect(refill(orders, confirmed)).toEqual(confirmed);
+    expect(show(preview(orders, confirmed))).toBe("B1 A3");
+
+    // 先頭の A3 を抽出開始して 1 枠空いたとき、B1 の注文の待ち時間で決め方が変わる
+    const consumed = consumeQueue(confirmed, { menuItemId: A, count: 3 });
+    const brew = brewing(A, 3);
+    const at = (t: string) => parseJstString(`2026-09-27 ${t}`).getTime();
+    expect(show(refill(orders, consumed, brew, at("10:28:59")).slice(FILLED_SLOTS))).toBe("A3");
+    expect(show(refill(orders, consumed, brew, at("10:29:00")).slice(FILLED_SLOTS))).toBe("B1");
+  });
+
+  it("未対応に戻った古い注文の杯は、見込みの中で後から来た注文より前に入る（確定キューの前には入らない）", () => {
+    const oldest = order("10:00:00", [3, 0]);
+    const later = Array.from({ length: CONFIRMED_QUEUE_LENGTH + 1 }, (_, i) =>
+      order(`10:0${i + 5}:00`, [0, 3]),
+    );
+    const orders = [oldest, ...later];
+    const confirmed = refill(orders, [], brewing(A, 3));
+    expect(show(confirmed)).toBe("B3 B3 B3 B3");
+    expect(show(preview(orders, confirmed, brewing(A, 3)))).toBe("B3");
+
+    // 抽出を取り消すと、確定キューは満杯のまま、見込みの先頭に A3 が入る
+    expect(refill(orders, confirmed)).toEqual(confirmed);
+    expect(show(preview(orders, confirmed))).toBe("A3 B3");
+  });
+});
+
+describe("refillQueue: 補充の繰り返し", () => {
   it("割り当て済みの状態でもう一度補充しても、キューは変わらない", () => {
     const orders = [order("10:28:00", [9, 1])];
     const first = refill(orders);
