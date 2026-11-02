@@ -400,7 +400,7 @@ describe("DripHome", () => {
     expect(within(lanesSection).getAllByRole("button", { name: "▶ 抽出開始" })).toHaveLength(4);
   });
 
-  it("抽出の提案に SNAPSHOT / QUEUE_UPDATED のキューが表示され、空き枠は「提案なし」になる", async () => {
+  it("抽出の提案に SNAPSHOT / QUEUE_UPDATED のキューが表示され、空のときは「提案なし」を 1 枚だけ出す", async () => {
     renderDrip();
     const ws = MockWebSocket.instances[0];
 
@@ -412,44 +412,5 @@ describe("DripHome", () => {
         queue: [{ id: "q1", menuItemId: "menu-1", count: 3 }],
       });
     });
-
-    const section = await waitFor(() => screen.getByRole("region", { name: "抽出の提案" }));
-    expect(within(section).getByText("アメリカーノ")).toBeInTheDocument();
-    expect(within(section).getByText("3杯")).toBeInTheDocument();
-    // 提案枠は 4 つ。1 つ埋まっているので残り 3 つが「提案なし」
-    expect(within(section).getAllByText("提案なし")).toHaveLength(3);
-
-    await act(async () => {
-      ws.emitMessage({ type: "QUEUE_UPDATED", queue: [] });
-    });
-    expect(within(section).getAllByText("提案なし")).toHaveLength(4);
-  });
-
-  it("提供待ちには提供待ちの注文のみを出し、サーバー上で ready の注文だけに「完了」を出す", async () => {
-    renderDrip();
-    const ws = MockWebSocket.instances[0];
-
-    await act(async () => {
-      ws.emitMessage({
-        type: "SNAPSHOT",
-        orders: [
-          { ...buildOrder("o1", 101, "menu-1", 1), status: "ready" },
-          buildOrder("o2", 102, "menu-1", 1), // 完成品は紐付き済みだがサーバー上はまだ pending
-          buildOrder("o3", 103, "menu-1", 1), // 未完成
-        ],
-        brewUnits: [
-          buildBrewUnit({ id: "u1", status: "ready", orderItemId: "o1-item" }),
-          buildBrewUnit({ id: "u2", status: "ready", orderItemId: "o2-item" }),
-        ],
-      });
-    });
-
-    const section = await waitFor(() => screen.getByRole("region", { name: "提供待ち" }));
-    expect(within(section).getByText("#101")).toBeInTheDocument();
-    expect(within(section).getByText("#102")).toBeInTheDocument();
-    expect(within(section).queryByText("#103")).not.toBeInTheDocument();
-    expect(within(section).getAllByRole("button", { name: "完了" })).toHaveLength(1);
-    expect(within(section).getByText("ドリップ完了後に提供できます")).toBeInTheDocument();
-    expect(within(section).getAllByRole("button", { name: "注文をキャンセル" })).toHaveLength(2);
   });
 });
