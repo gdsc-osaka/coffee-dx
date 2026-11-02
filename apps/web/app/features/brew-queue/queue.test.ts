@@ -315,6 +315,49 @@ describe("refillQueue: 既存エントリー", () => {
   });
 });
 
+describe("refillQueue: 未対応に戻った古い注文の杯", () => {
+  it("抽出を取り消した最古の注文の分は、後から来た注文のエントリーより前に入る", () => {
+    // 最古の注文（A3）を抽出中に、後の注文の B が 3 エントリー並んでいる
+    const oldest = order("10:00:00", [3, 0]);
+    const later = [order("10:05:00", [0, 3]), order("10:06:00", [0, 3]), order("10:07:00", [0, 3])];
+    const queue = refill([oldest, ...later], [], brewing(A, 3));
+    expect(show(queue)).toBe("B3 B3 B3");
+
+    // 抽出を取り消すと A3 が未対応に戻る
+    const result = refill([oldest, ...later], queue);
+    expect(show(result)).toBe("A3 B3 B3 B3");
+    expect(result.slice(1)).toEqual(queue);
+  });
+
+  it("提案より少ない杯数で抽出を始めた残りは、後から来た注文のエントリーより前に入る", () => {
+    const orders = [
+      order("10:00:00", [3, 0]),
+      order("10:05:00", [0, 3]),
+      order("10:06:00", [0, 3]),
+      order("10:07:00", [3, 0]),
+    ];
+    const queue = refill(orders);
+    expect(show(queue)).toBe("A3 B3 B3 A3");
+
+    // A を 2 杯だけで抽出開始 → 最古の注文の A が 1 杯残る
+    const consumed = consumeQueue(queue, { menuItemId: A, count: 2 });
+    const result = refill(orders, consumed, brewing(A, 2));
+    expect(show(result)).toBe("A1 B3 B3 A3");
+    expect(result.slice(1)).toEqual(consumed);
+  });
+
+  it("同じ種類の既存エントリーと同じ注文を担当するなら、その前には入らない", () => {
+    // 最古の注文（A1）と後の注文（A3）を、既存の A3 が古い順に担当している
+    const orders = [
+      order("10:00:00", [1, 0]),
+      order("10:05:00", [0, 3]),
+      order("10:06:00", [3, 0]),
+    ];
+    const result = refill(orders, [entry("x", A, 3), entry("y", B, 3)]);
+    expect(show(result)).toBe("A3 B3 A1");
+  });
+});
+
 describe("consumeQueue", () => {
   it("一致するエントリーのうち前のものを消費する", () => {
     const queue = [entry("1", A, 3), entry("2", B, 3), entry("3", A, 3)];

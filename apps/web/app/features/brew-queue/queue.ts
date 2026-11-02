@@ -140,6 +140,51 @@ export function computePendingOrders(
   return result;
 }
 
+/**
+ * base（抽出中まで差し引いた未対応杯数）の中で、そのメニューの ahead 杯目の次の杯がどの注文の分か。
+ * キューの杯は、メニューごとに前のエントリーから古い注文の順に割り当たる。該当がなければ null。
+ */
+function orderAt(base: PendingOrder[], menuItemId: string, ahead: number): QueueOrder | null {
+  let rest = ahead;
+  for (const p of base) {
+    const n = pendingOf(p, menuItemId);
+    if (rest < n) return p.order;
+    rest -= n;
+  }
+  return null;
+}
+
+/** 各エントリーの代表注文（そのエントリーの杯が割り当たる注文のうち最も古いもの） */
+function representativesOf(queue: QueueEntry[], base: PendingOrder[]): Array<QueueOrder | null> {
+  const ahead = new Map<string, number>();
+  return queue.map((e) => {
+    const a = ahead.get(e.menuItemId) ?? 0;
+    ahead.set(e.menuItemId, a + e.count);
+    return orderAt(base, e.menuItemId, a);
+  });
+}
+
+/**
+ * 新しいエントリーを、代表注文がそれより新しい既存エントリーの前に差し込む（既存エントリーの並びは変えない）。
+ * 取り消しや杯数の少ない抽出開始で未対応に戻った古い注文の杯が、後から来た注文の後ろで待たないようにする。
+ * 比較には差し込む前の代表注文を使う。同じ種類のエントリーの前に入ると割り当てが入れ替わるだけなので、
+ * 差し込んだ後の値で比べると、新しい注文の分が同じ種類の既存エントリーを追い越してしまう。
+ */
+function insertByAge(queue: QueueEntry[], entry: QueueEntry, base: PendingOrder[]): QueueEntry[] {
+  const existing = representativesOf(queue, base);
+  let ahead = 0;
+  for (let i = 0; i < queue.length; i++) {
+    const mine = orderAt(base, entry.menuItemId, ahead);
+    if (!mine) break;
+    const theirs = existing[i];
+    if (!theirs || compareOrders(mine, theirs) < 0) {
+      return [...queue.slice(0, i), entry, ...queue.slice(i)];
+    }
+    if (queue[i].menuItemId === entry.menuItemId) ahead += queue[i].count;
+  }
+  return [...queue, entry];
+}
+
 /** 長時間待ちの優先: 最も古い注文の種類を選ぶ */
 function choosePriorityMenu(pendingOrders: PendingOrder[], menus: QueueMenus): string {
   const [oldest, ...others] = pendingOrders;
@@ -164,7 +209,7 @@ function chooseNormalMenu(pendingOrders: PendingOrder[], menus: QueueMenus): str
 
 /**
  * 補充。既存エントリーの種類と並びは変えず、3 杯未満のエントリーへの追加と、
- * 未対応の杯が残っている間の新しいエントリーの追加のみを行う。
+ * 未対応の杯が残っている間の新しいエントリーの追加（代表注文の古さに応じた位置へ差し込む）のみを行う。
  * maxEntries を省略すると、未対応の杯がすべてエントリーに割り当てられるまで追加する。
  */
 export function refillQueue({
@@ -230,9 +275,11 @@ export function refillQueue({
     addBatch(chooseNormalMenu(pendingOrders, menus), pendingOrders);
   }
 
-  // 今回追加する分のみを代表注文の古い順に並べ、末尾に追加する
+  // 今回追加する分を代表注文の古い順に、代表注文がより新しい既存エントリーの前へ差し込む。
+  // 新しい注文の分は既存エントリーより新しいので、これまでどおり末尾に付く。
   added.sort((x, y) => compareOrders(x.representative, y.representative));
-  return [...current, ...added.map((a) => a.entry)];
+  const base = computePendingOrders(orders, brewUnits, [], menus);
+  return added.reduce((q, a) => insertByAge(q, a.entry, base), current);
 }
 
 /**
