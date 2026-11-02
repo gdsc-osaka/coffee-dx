@@ -14,7 +14,7 @@ import { getReadyOrders } from "./utils/readyOrders";
 import type { QueueEntry } from "~/features/brew-queue/queue";
 
 /** 物理ドリッパー数 = 固定レーン数。全端末で共通の表示にするため固定値で運用する */
-const LANE_COUNT = 3;
+const LANE_COUNT = 4;
 type LaneSlot = LaneIdleState | LaneActiveDescriptor;
 const buildIdleSlot = (): LaneIdleState => ({
   kind: "idle",
