@@ -13,6 +13,8 @@ import { TIMER_FEATURE_ENABLED } from "../constants";
 import { parseJst } from "../utils/parseJst";
 import { stopTimerEndSound } from "../utils/audioUnlock";
 import { LaneTimer } from "./LaneTimer";
+import { OrderAllocationList } from "./OrderAllocationList";
+import type { BatchAllocation } from "~/features/brew-queue/allocation";
 
 const COMPLETE_UNDO_WINDOW_MS = 5_000;
 
@@ -33,6 +35,7 @@ export function LaneActive({
   eventId,
   isCancelling,
   isSettingTimer,
+  allocation,
 }: {
   laneNumber: number;
   menuItemName: string;
@@ -43,6 +46,8 @@ export function LaneActive({
   eventId: string;
   isCancelling: boolean;
   isSettingTimer: boolean;
+  /** このバッチがどの注文の分か（予測） */
+  allocation?: BatchAllocation;
 }) {
   const submit = useSubmit();
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
@@ -155,6 +160,8 @@ export function LaneActive({
           </span>
         )}
       </div>
+
+      <OrderAllocationList allocation={allocation} />
 
       {TIMER_FEATURE_ENABLED && (
         <div className={phase !== "idle" ? "hidden" : undefined}>

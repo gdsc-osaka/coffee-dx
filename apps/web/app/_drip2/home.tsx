@@ -12,6 +12,7 @@ import { BrewSuggestion } from "./components/BrewSuggestion";
 import { ReadyOrders } from "./components/ReadyOrders";
 import { getReadyOrders } from "./utils/readyOrders";
 import type { QueueEntry } from "~/features/brew-queue/queue";
+import { allocateOrderNumbers } from "~/features/brew-queue/allocation";
 
 /** 物理ドリッパー数 = 固定レーン数。全端末で共通の表示にするため固定値で運用する */
 const LANE_COUNT = 4;
@@ -34,6 +35,8 @@ type OrderItemData = {
   orderId: string;
   menuItemId: string;
   quantity: number;
+  /** 旧イベントの payload では未指定のため、未指定は brew として扱う。 */
+  fulfillmentTypeAtOrder?: "brew" | "direct";
   name?: string;
   createdAt: string;
   updatedAt: string;
@@ -508,6 +511,17 @@ export default function DripHome({
     [ordersById, brewUnitsById],
   );
 
+  // 抽出中バッチ・抽出の提案がどの注文の分か（予測）。全端末で同じ WS データから計算する
+  const orderAllocations = useMemo(
+    () =>
+      allocateOrderNumbers({
+        orders: Object.values(ordersById),
+        brewUnits: Object.values(brewUnitsById),
+        queue,
+      }),
+    [ordersById, brewUnitsById, queue],
+  );
+
   // 抽出の提案に出すメニュー名: menus → 抽出記録 → 注文品目 の順で探す
   const menuNameOf = useCallback(
     (menuItemId: string) =>
@@ -693,13 +707,20 @@ export default function DripHome({
                         isStarting={isStarting}
                         isCancelling={isCancelling}
                         isSettingTimer={isSettingTimer}
+                        allocation={
+                          batchId !== null ? orderAllocations.byBatchId[batchId] : undefined
+                        }
                       />
                     </div>
                   );
                 })}
               </div>
             </section>
-            <BrewSuggestion queue={queue} menuNameOf={menuNameOf} />
+            <BrewSuggestion
+              queue={queue}
+              menuNameOf={menuNameOf}
+              allocations={orderAllocations.byQueueEntryId}
+            />
             <ReadyOrders
               orders={readyOrders}
               eventId={eventId}
