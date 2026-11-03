@@ -38,7 +38,8 @@ export type OrderNumberAllocations = {
   byQueueEntryId: Record<string, BatchAllocation>;
   /**
    * 注文品目 ID → 完成・抽出中の杯数（pending / brewing の注文の brew 品目のみ）。
-   * 完成は紐付き済みの完成品と、割り当てた未紐付きの完成品の合計。未着手 = quantity − ready − brewing。
+   * 完成は実際に紐付いた完成品のみ（提供待ち・会計係画面と同じ基準）。未着手 = quantity − ready − brewing。
+   * 未紐付きの完成品が残っているのは紐付けに失敗したときだけなので、完成扱いにせず未着手に残す。
    */
   byOrderItemId: Record<string, ItemProgress>;
 };
@@ -110,18 +111,15 @@ export function allocateOrderNumbers({
     byOrderItemId[row.orderItemId] = { ready: linkedReady.get(row.orderItemId) ?? 0, brewing: 0 };
   }
 
-  // 未紐付きの完成品は次の完了時に先に割り当てられるので、先に差し引く（完成扱い）
+  // 未紐付きの完成品は次の完了時に先に割り当てられるので、番号の割り当てでは先に差し引く
+  // （品目ごとの杯数では完成扱いにしない）
   const readyUnlinked = new Map<string, number>();
   for (const u of brewUnits) {
     if (u.orderItemId === null && u.status === "ready") {
       readyUnlinked.set(u.menuItemId, (readyUnlinked.get(u.menuItemId) ?? 0) + 1);
     }
   }
-  for (const [menuItemId, n] of readyUnlinked) {
-    take(rows, menuItemId, n, (row, k) => {
-      byOrderItemId[row.orderItemId].ready += k;
-    });
-  }
+  for (const [menuItemId, n] of readyUnlinked) take(rows, menuItemId, n);
 
   // 抽出中バッチを開始が早い順に
   const batches = new Map<string, { menuItemId: string; createdAt: string; count: number }>();

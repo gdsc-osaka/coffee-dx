@@ -536,10 +536,17 @@ export default function DripHome({
     [menus, brewUnitsById, ordersById],
   );
 
-  // 「未提供の注文」: 抽出中・未着手の杯が残っている注文（杯数はレーン表示と同じ予測を使う）
+  // 「未提供の注文」: 提供待ちに入らない注文（どの注文も必ずどちらか一方の欄に出る）。
+  // 抽出中の杯数はレーン表示と同じ予測を使う
   const unservedOrders = useMemo(
-    () => getUnservedOrders(Object.values(ordersById), orderAllocations.byOrderItemId, menuNameOf),
-    [ordersById, orderAllocations, menuNameOf],
+    () =>
+      getUnservedOrders(
+        Object.values(ordersById),
+        new Set(readyOrders.map((o) => o.id)),
+        orderAllocations.byOrderItemId,
+        menuNameOf,
+      ),
+    [ordersById, readyOrders, orderAllocations, menuNameOf],
   );
 
   const isSubmitting = navigation.state === "submitting";

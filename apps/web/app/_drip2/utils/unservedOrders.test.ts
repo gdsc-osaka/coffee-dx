@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { getReadyOrders } from "./readyOrders";
 import { getUnservedOrders } from "./unservedOrders";
 
 const nameOf = (id: string) => `name-${id}`;
+const none = new Set<string>();
 
 function order(
   n: number,
@@ -33,6 +35,7 @@ describe("getUnservedOrders", () => {
           { id: "b", quantity: 1 },
         ]),
       ],
+      none,
       { a: { ready: 1, brewing: 1 }, b: { ready: 0, brewing: 0 } },
       nameOf,
     );
@@ -69,48 +72,80 @@ describe("getUnservedOrders", () => {
   it("抽出中の杯がなければ pending", () => {
     const result = getUnservedOrders(
       [order(1, "10:00:00", [{ id: "a", quantity: 1 }])],
+      none,
       { a: { ready: 0, brewing: 0 } },
       nameOf,
     );
     expect(result[0].status).toBe("pending");
   });
 
-  it("全杯完成した注文・pending / brewing 以外の注文は含めない", () => {
+  it("提供待ちの注文と、完了・キャンセル済みの注文は含めない", () => {
     const result = getUnservedOrders(
       [
-        order(1, "10:00:00", [{ id: "a", quantity: 2 }]),
+        order(1, "10:00:00", [{ id: "a", quantity: 1 }]),
         order(2, "10:01:00", [{ id: "b", quantity: 1 }], "ready"),
         order(3, "10:02:00", [{ id: "c", quantity: 1 }], "completed"),
         order(4, "10:03:00", [{ id: "d", quantity: 1 }], "cancelled"),
-        order(5, "10:04:00", [{ id: "e", quantity: 1 }], "brewing"),
+        order(5, "10:04:00", [{ id: "e", quantity: 1 }]),
       ],
-      { a: { ready: 2, brewing: 0 }, e: { ready: 0, brewing: 1 } },
+      new Set(["order-1", "order-2"]),
+      {},
       nameOf,
     );
     expect(result.map((o) => o.orderNumber)).toEqual([5]);
   });
 
-  it("direct 品目は判定に使わず、それだけ未完成扱いにはしない", () => {
+  it("direct 品目は受渡済として扱う", () => {
     const result = getUnservedOrders(
       [
         order(1, "10:00:00", [
           { id: "a", quantity: 1 },
           { id: "x", quantity: 2, direct: true },
         ]),
-        order(2, "10:01:00", [
-          { id: "b", quantity: 1 },
-          { id: "y", quantity: 1, direct: true },
-        ]),
       ],
-      { a: { ready: 1, brewing: 0 }, b: { ready: 0, brewing: 0 } },
+      none,
+      { a: { ready: 0, brewing: 0 } },
       nameOf,
     );
-    expect(result.map((o) => o.orderNumber)).toEqual([2]);
     expect(result[0].items[1]).toMatchObject({
       fulfillmentTypeAtOrder: "direct",
+      readyCount: 2,
       brewingCount: 0,
       pendingCount: 0,
     });
+  });
+
+  it("どの注文も提供待ちと未提供のどちらか一方にだけ入る", () => {
+    const orders = [
+      // brew は紐付き済みで完成、direct が混ざり、サーバー上はまだ pending
+      order(1, "10:00:00", [
+        { id: "a", quantity: 1 },
+        { id: "x", quantity: 1, direct: true },
+      ]),
+      // 紐付き済みの完成品で全杯そろっている（サーバー上はまだ pending）
+      order(2, "10:01:00", [{ id: "b", quantity: 1 }]),
+      // サーバー上 ready
+      order(3, "10:02:00", [{ id: "c", quantity: 1 }], "ready"),
+      // 未着手
+      order(4, "10:03:00", [{ id: "d", quantity: 2 }]),
+    ];
+    const brewUnits = [
+      { orderItemId: "a", status: "ready" as const },
+      { orderItemId: "b", status: "ready" as const },
+      { orderItemId: "c", status: "ready" as const },
+      // 紐付けに失敗して残った未紐付きの完成品
+      { orderItemId: null, status: "ready" as const },
+    ];
+    const ready = getReadyOrders(orders, brewUnits);
+    const readyIds = new Set(ready.map((o) => o.id));
+    const unserved = getUnservedOrders(
+      orders,
+      readyIds,
+      { a: { ready: 1, brewing: 0 }, b: { ready: 1, brewing: 0 }, d: { ready: 0, brewing: 0 } },
+      nameOf,
+    );
+    const all = [...ready.map((o) => o.orderNumber), ...unserved.map((o) => o.orderNumber)];
+    expect(all.sort()).toEqual([1, 2, 3, 4]);
   });
 
   it("古い注文順（同時刻は注文番号順）に並べる", () => {
@@ -120,6 +155,7 @@ describe("getUnservedOrders", () => {
         order(2, "10:00:00", [{ id: "b", quantity: 1 }]),
         order(1, "10:00:00", [{ id: "a", quantity: 1 }]),
       ],
+      none,
       {},
       nameOf,
     );

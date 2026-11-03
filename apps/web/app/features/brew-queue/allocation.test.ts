@@ -161,7 +161,7 @@ describe("allocateOrderNumbers", () => {
     expect(result.byBatchId.b1.orders).toEqual([{ orderNumber: 1, count: 1 }]);
   });
 
-  it("品目ごとに完成・抽出中の杯数を返す（提案に割り当てた杯は未着手のまま）", () => {
+  it("品目ごとに完成（紐付き済みのみ）・抽出中の杯数を返す（提案に割り当てた杯は未着手のまま）", () => {
     seq = 0;
     const orders = [order("10:00:00", [3, 1]), order("10:01:00", [2, 0])];
     const result = allocateOrderNumbers({
@@ -169,14 +169,14 @@ describe("allocateOrderNumbers", () => {
       brewUnits: [
         // 注文1 の A に 1 杯紐付き済み
         ...batch("done", A, 1, "00:50:00", "ready", "item-1-a"),
-        // 未紐付きの完成品 1 杯 → 注文1 の A に充てる（完成扱い）
+        // 未紐付きの完成品 1 杯 → 番号の割り当てでは注文1 の A に充てるが、完成とは数えない
         ...batch("surplus", A, 1, "00:55:00", "ready"),
         // 抽出中 2 杯 → 注文1 の A に 1 杯、注文2 の A に 1 杯
         ...batch("b1", A, 2, "01:00:00"),
       ],
       queue: [entry("q1", A, 1), entry("q2", B, 1)],
     });
-    expect(result.byOrderItemId["item-1-a"]).toEqual({ ready: 2, brewing: 1 });
+    expect(result.byOrderItemId["item-1-a"]).toEqual({ ready: 1, brewing: 1 });
     expect(result.byOrderItemId["item-1-b"]).toEqual({ ready: 0, brewing: 0 });
     expect(result.byOrderItemId["item-2-a"]).toEqual({ ready: 0, brewing: 1 });
   });
