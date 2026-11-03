@@ -11,6 +11,8 @@ import { ensureAudioUnlocked, isAudioUnlocked } from "./utils/audioUnlock";
 import { BrewSuggestion } from "./components/BrewSuggestion";
 import { ReadyOrders } from "./components/ReadyOrders";
 import { getReadyOrders } from "./utils/readyOrders";
+import { UnservedOrders } from "./components/UnservedOrders";
+import { getUnservedOrders } from "./utils/unservedOrders";
 import type { QueueEntry } from "~/features/brew-queue/queue";
 import { allocateOrderNumbers } from "~/features/brew-queue/allocation";
 
@@ -534,6 +536,12 @@ export default function DripHome({
     [menus, brewUnitsById, ordersById],
   );
 
+  // 「未提供の注文」: 抽出中・未着手の杯が残っている注文（杯数はレーン表示と同じ予測を使う）
+  const unservedOrders = useMemo(
+    () => getUnservedOrders(Object.values(ordersById), orderAllocations.byOrderItemId, menuNameOf),
+    [ordersById, orderAllocations, menuNameOf],
+  );
+
   const isSubmitting = navigation.state === "submitting";
   const submittingOrderId = isSubmitting ? navigation.formData?.get("orderId") : null;
   const submittingBatchId = isSubmitting ? navigation.formData?.get("batchId") : null;
@@ -721,6 +729,7 @@ export default function DripHome({
               menuNameOf={menuNameOf}
               allocations={orderAllocations.byQueueEntryId}
             />
+            <UnservedOrders orders={unservedOrders} />
             <ReadyOrders
               orders={readyOrders}
               eventId={eventId}

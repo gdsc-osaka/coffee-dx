@@ -36,16 +36,28 @@ export type OrderNumberAllocations = {
   byBatchId: Record<string, BatchAllocation>;
   /** 提案（キューエントリー）ID → 割り当て */
   byQueueEntryId: Record<string, BatchAllocation>;
+  /**
+   * 注文品目 ID → 完成・抽出中の杯数（pending / brewing の注文の brew 品目のみ）。
+   * 完成は紐付き済みの完成品と、割り当てた未紐付きの完成品の合計。未着手 = quantity − ready − brewing。
+   */
+  byOrderItemId: Record<string, ItemProgress>;
 };
 
-type Row = { orderNumber: number; menuItemId: string; remaining: number };
+export type ItemProgress = { ready: number; brewing: number };
+
+type Row = { orderItemId: string; orderNumber: number; menuItemId: string; remaining: number };
 
 function compareOrders(a: AllocationOrder, b: AllocationOrder): number {
   return a.createdAt.localeCompare(b.createdAt) || a.orderNumber - b.orderNumber;
 }
 
 /** rows を古い順にたどって menuItemId の杯を count 杯まで割り当てる */
-function take(rows: Row[], menuItemId: string, count: number): BatchAllocation {
+function take(
+  rows: Row[],
+  menuItemId: string,
+  count: number,
+  onTake?: (row: Row, n: number) => void,
+): BatchAllocation {
   const orders: OrderAllocation[] = [];
   let left = count;
   for (const row of rows) {
@@ -54,6 +66,7 @@ function take(rows: Row[], menuItemId: string, count: number): BatchAllocation {
     const n = Math.min(left, row.remaining);
     row.remaining -= n;
     left -= n;
+    onTake?.(row, n);
     const last = orders[orders.length - 1];
     if (last && last.orderNumber === row.orderNumber) last.count += n;
     else orders.push({ orderNumber: row.orderNumber, count: n });
@@ -85,20 +98,30 @@ export function allocateOrderNumbers({
       o.items
         .filter((item) => item.fulfillmentTypeAtOrder !== "direct")
         .map((item) => ({
+          orderItemId: item.id,
           orderNumber: o.orderNumber,
           menuItemId: item.menuItemId,
           remaining: Math.max(0, item.quantity - (linkedReady.get(item.id) ?? 0)),
         })),
     );
 
-  // 未紐付きの完成品は次の完了時に先に割り当てられるので、先に差し引く（表示はしない）
+  const byOrderItemId: Record<string, ItemProgress> = {};
+  for (const row of rows) {
+    byOrderItemId[row.orderItemId] = { ready: linkedReady.get(row.orderItemId) ?? 0, brewing: 0 };
+  }
+
+  // 未紐付きの完成品は次の完了時に先に割り当てられるので、先に差し引く（完成扱い）
   const readyUnlinked = new Map<string, number>();
   for (const u of brewUnits) {
     if (u.orderItemId === null && u.status === "ready") {
       readyUnlinked.set(u.menuItemId, (readyUnlinked.get(u.menuItemId) ?? 0) + 1);
     }
   }
-  for (const [menuItemId, n] of readyUnlinked) take(rows, menuItemId, n);
+  for (const [menuItemId, n] of readyUnlinked) {
+    take(rows, menuItemId, n, (row, k) => {
+      byOrderItemId[row.orderItemId].ready += k;
+    });
+  }
 
   // 抽出中バッチを開始が早い順に
   const batches = new Map<string, { menuItemId: string; createdAt: string; count: number }>();
@@ -113,7 +136,9 @@ export function allocateOrderNumbers({
     ([idA, a], [idB, b]) => a.createdAt.localeCompare(b.createdAt) || idA.localeCompare(idB),
   );
   for (const [batchId, b] of sortedBatches) {
-    byBatchId[batchId] = take(rows, b.menuItemId, b.count);
+    byBatchId[batchId] = take(rows, b.menuItemId, b.count, (row, k) => {
+      byOrderItemId[row.orderItemId].brewing += k;
+    });
   }
 
   const byQueueEntryId: Record<string, BatchAllocation> = {};
@@ -121,5 +146,5 @@ export function allocateOrderNumbers({
     byQueueEntryId[e.id] = take(rows, e.menuItemId, e.count);
   }
 
-  return { byBatchId, byQueueEntryId };
+  return { byBatchId, byQueueEntryId, byOrderItemId };
 }
